@@ -1,9 +1,9 @@
 // Mayhem savaş motoru v2: DOM'a dokunmaz, tarayıcıda da Node'da da çalışır.
 (function (root) {
   const D = root.MayhemData;
-  const W = 1400, H = 800, LEVEL = 16;
+  const W = 1400, H = 800, LEVEL = 18;
   const REALM = { x: W / 2, y: -700, r: 170 };
-  const RANGE_SCALE = 0.38, MS_SCALE = 0.5, HP_MULT = 1.6;
+  const RANGE_SCALE = 0.38, MS_SCALE = 0.5, HP_MULT = 1.75;
   const TAU = Math.PI * 2;
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));

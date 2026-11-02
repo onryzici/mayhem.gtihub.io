@@ -13,6 +13,7 @@
   ];
   const ROUND_NAMES = ['Çeyrek Final', 'Yarı Final', 'Final'];
   const BEST_OF = [1, 3, 3];
+  const ITEM_SLOTS = 5;
 
   const S = {
     v: null, champs: null, runes: [], keystones: {}, trees: {}, summ: {}, detail: {},
@@ -90,6 +91,7 @@
       }
       for (const id in D.SUMMONERS) if (s.data[id]) S.summ[id] = s.data[id];
       $('loadNote').textContent = `${Object.keys(S.champs).length} şampiyon · yama ${S.v}`;
+      setupIntro();
       updateIntro();
     } catch (e) {
       $('toDraft').textContent = 'Yüklenemedi';
@@ -110,6 +112,26 @@
   }
 
   // ---------- 1. giriş ----------
+  function setupIntro() {
+    const ids = shuffle(Object.keys(S.champs));
+    const picks = ids.slice(0, 7);
+    $('introBg').innerHTML = picks.map((id, i) => `<div class="slide${i ? '' : ' on'}" style="background-image:url('${splashArt(S.champs[id])}')"></div>`).join('');
+    $('featChamps').textContent = Object.keys(S.champs).length;
+    const icons = ids.slice(0, 44).map(id => `<img src="${icon(S.champs[id])}" alt="" loading="lazy">`).join('');
+    $('marquee').innerHTML = icons + icons;
+    let cur = 0;
+    const credit = () => { const c = S.champs[picks[cur]]; $('bgCredit').innerHTML = `<b>${esc(c.name)}</b>${esc(c.title)}`; };
+    credit();
+    clearInterval(S.introTimer);
+    S.introTimer = setInterval(() => {
+      if (!$('intro').classList.contains('active')) return;
+      const slides = $('introBg').children;
+      slides[cur].classList.remove('on');
+      cur = (cur + 1) % slides.length;
+      slides[cur].classList.add('on');
+      credit();
+    }, 6500);
+  }
   function autoTag(name) {
     const words = name.trim().split(/\s+/).filter(Boolean);
     const t = words.length > 1 ? words.map(w => w[0]).join('') : (words[0] || '');
@@ -121,6 +143,7 @@
     const tag = $('teamTag').value.trim().toLocaleUpperCase('tr') || 'TAK';
     $('pvBadge').textContent = tag;
     $('pvBadge').style.setProperty('--c', S.team.color);
+    $('teamPreview').style.setProperty('--pc', S.team.color);
     $('pvName').textContent = name || 'Takımın';
     $('toDraft').disabled = !(S.champs && name.length >= 2);
     if (S.champs) $('toDraft').textContent = 'Takımı kur →';
@@ -211,7 +234,7 @@
 
   function defaultLoadout(c) {
     const b = D.buildFor(c);
-    return { boots: b.boots, items: b.core.slice(0, 4), keystone: b.keystone, secondary: b.secondary, summs: b.summ.slice() };
+    return { boots: b.boots, items: [...new Set([...b.core, ...b.alt])].slice(0, ITEM_SLOTS), keystone: b.keystone, secondary: b.secondary, summs: b.summ.slice() };
   }
 
   $('picks').addEventListener('click', e => {
@@ -244,7 +267,7 @@
   });
 
   // ---------- 3. dizilim ----------
-  const complete = r => r.boots && r.items.length === 4 && r.keystone && r.secondary && r.summs.length === 2;
+  const complete = r => r.boots && r.items.length === ITEM_SLOTS && r.keystone && r.secondary && r.summs.length === 2;
 
   function fitInfo(r) {
     const b = D.buildFor(r.champ);
@@ -257,10 +280,10 @@
     let warn = '';
     if (magic && cls !== 'apBruiser' && cats.some(c => c === 'crit' || c === 'assassin' || c === 'caster')) warn = 'Bu şampiyon büyü hasarı vuruyor; saldırı gücü itemleri yeteneklerini güçlendirmez.';
     else if (physical && cats.includes('mage') && !['Kaisa', 'Kayle'].includes(r.champ.id)) warn = 'Bu şampiyon fiziksel hasar vuruyor; yetenek gücü burada boşa gider.';
-    else if (cls === 'enchanter' && r.items.length === 4 && !cats.includes('support')) warn = 'Destek itemleri olmadan iyileştirmelerin zayıf kalır.';
-    else if ((cls === 'tank' || cls === 'engage') && r.items.length === 4 && !cats.some(c => c === 'tank' || c === 'support')) warn = 'Tank itemleri olmadan ön safta hızla erirsin.';
-    const labels = ['Uyumsuz', 'Zayıf', 'Orta', 'İyi', 'Mükemmel'];
-    const colors = ['#f87171', '#fb923c', '#facc15', '#a3e635', '#34d399'];
+    else if (cls === 'enchanter' && r.items.length === ITEM_SLOTS && !cats.includes('support')) warn = 'Destek itemleri olmadan iyileştirmelerin zayıf kalır.';
+    else if ((cls === 'tank' || cls === 'engage') && r.items.length === ITEM_SLOTS && !cats.some(c => c === 'tank' || c === 'support')) warn = 'Tank itemleri olmadan ön safta hızla erirsin.';
+    const labels = ['Uyumsuz', 'Uyumsuz', 'Zayıf', 'Orta', 'İyi', 'Mükemmel'];
+    const colors = ['#f87171', '#f87171', '#fb923c', '#facc15', '#a3e635', '#34d399'];
     return { fit, label: labels[fit], color: colors[fit], warn };
   }
 
@@ -302,7 +325,7 @@
         </div>
         <div class="fit">
           Build uyumu: <b style="color:${fi.color}">${r.items.length ? fi.label : '—'}</b>
-          <div class="meter" style="--fc:${fi.color}">${[0, 1, 2, 3].map(i => `<i class="${i < fi.fit ? 'on' : ''}"></i>`).join('')}</div>
+          <div class="meter" style="--fc:${fi.color}">${Array.from({ length: ITEM_SLOTS }, (_, i) => `<i class="${i < fi.fit ? 'on' : ''}"></i>`).join('')}</div>
           ${fi.warn ? `<div style="margin-top:8px;color:#fca5a5;font-size:12px;line-height:1.45">⚠ ${fi.warn}</div>` : ''}
         </div>
       </div>`;
@@ -332,7 +355,7 @@
     const tile = it => {
       const isBoots = it.cat === 'boots';
       const sel = isBoots ? r.boots === it.id : r.items.includes(it.id);
-      const dis = !sel && !isBoots && r.items.length >= 4;
+      const dis = !sel && !isBoots && r.items.length >= ITEM_SLOTS;
       const tag = recSet.has(it.id) || b.boots === it.id ? '★ ÖNERİLEN' : altSet.has(it.id) ? 'ALTERNATİF' : '';
       return `<button type="button" class="item${sel ? ' sel' : ''}" data-id="${it.id}" ${dis ? 'disabled' : ''}>
         <img src="${itemIcon(it.id)}" alt="" loading="lazy">
@@ -342,8 +365,8 @@
     };
     const all = Object.values(M.ITEMS);
     const recList = [...b.core, ...b.alt].map(id => M.ITEMS[id]).filter(Boolean);
-    let html = `<div class="chosen">${slot(r.boots, 0, true)}${[0, 1, 2, 3].map(i => slot(r.items[i], i + 1)).join('')}</div>`;
-    html += `<div class="legend"><b>★</b> profesyonellerin bu sınıfta kurduğu çekirdek build, <b>ALTERNATİF</b> duruma göre alınanlar. Diğerlerini de seçebilirsin, savaşta etkisini görürsün.</div>`;
+    let html = `<div class="chosen">${slot(r.boots, 0, true)}${Array.from({ length: ITEM_SLOTS }, (_, i) => slot(r.items[i], i + 1)).join('')}</div>`;
+    html += `<div class="legend">Tam build: ayakkabı + 5 item. <b>★ ÖNERİLEN</b> profesyonellerin bu sınıfta kurduğu çekirdek, <b>ALTERNATİF</b> duruma göre alınanlar. Diğerlerini de seçebilirsin, savaşta etkisini görürsün.</div>`;
     html += `<div class="cat-title">Ayakkabı</div><div class="item-grid">${all.filter(it => it.cat === 'boots').map(tile).join('')}</div>`;
     html += `<div class="cat-title">★ ${D.CLASS_NAMES[D.classOf(r.champ)]} için</div><div class="item-grid">${recList.map(tile).join('')}</div>`;
     for (const cat in D.ITEM_CATS) {
@@ -409,7 +432,7 @@
       else {
         const i = r.items.indexOf(id);
         if (i >= 0) r.items.splice(i, 1);
-        else if (r.items.length < 4) r.items.push(id);
+        else if (r.items.length < ITEM_SLOTS) r.items.push(id);
       }
     } else if (rm) {
       const id = +rm.dataset.rm;
@@ -439,7 +462,7 @@
     for (const r of S.team.roster) {
       const d = defaultLoadout(r.champ);
       if (!r.boots) r.boots = d.boots;
-      for (const id of [...d.items, ...D.buildFor(r.champ).alt]) if (r.items.length < 4 && !r.items.includes(id)) r.items.push(id);
+      for (const id of [...d.items, ...D.buildFor(r.champ).alt]) if (r.items.length < ITEM_SLOTS && !r.items.includes(id)) r.items.push(id);
       if (!r.keystone) r.keystone = d.keystone;
       if (!r.secondary) r.secondary = d.secondary;
       if (r.summs.length < 2) r.summs = d.summs;
@@ -464,7 +487,7 @@
       const champ = S.champs[id];
       const lo = defaultLoadout(champ);
       const b = D.buildFor(champ);
-      if (Math.random() < 0.5 && b.alt.length) lo.items[3] = shuffle(b.alt).find(x => !lo.items.includes(x)) || lo.items[3];
+      if (Math.random() < 0.5 && b.alt.length) lo.items[4] = shuffle(b.alt).find(x => !lo.items.includes(x)) || lo.items[4];
       if (Math.random() < 0.2) lo.items[2] = shuffle(Object.keys(M.ITEMS).map(Number).filter(x => M.ITEMS[x].cat !== 'boots' && !lo.items.includes(x)))[0];
       return { role, champ, ...lo };
     });
@@ -588,8 +611,29 @@
     const m = userMatch();
     const opp = m.a === S.team ? m.b : m.a;
     series = { m, opp, bo: BEST_OF[S.tour.round], wins: [0, 0], game: 0 };
-    show('battle');
-    startGame();
+    loadingScreen(() => { show('battle'); startGame(); });
+  }
+
+  function loadingScreen(done) {
+    const teams = [S.team, series.opp];
+    let n = 0;
+    const card = (t, r) => {
+      const ks = S.keystones[r.keystone];
+      const det = S.detail[r.champ.id] || {};
+      return `<div class="ls-card" style="--c:${t.color};animation-delay:${(n++) * 0.07}s">
+        <div class="ls-art" style="background-image:url('${loadingArt(r.champ)}')"></div>
+        <div class="ls-meta"><b>${esc(r.champ.name)}</b><small>${D.ROLE_NAMES[r.role]}</small>
+          <div class="ls-icons">${r.summs.map(x => `<img src="${summIcon(x)}" alt="">`).join('')}${ks ? `<img class="rn" src="${runeIcon(ks.icon)}" alt="">` : ''}${det.ultIcon ? `<img src="${det.ultIcon}" alt="">` : ''}</div>
+        </div>
+      </div>`;
+    };
+    const row = t => `<div class="ls-team"><div class="ls-head">${teamBadge(t)}<b>${esc(t.name)}</b></div><div class="ls-row">${t.roster.map(r => card(t, r)).join('')}</div></div>`;
+    const bo = series.bo === 1 ? 'Tek maç' : `${series.bo} maçta ${Math.ceil(series.bo / 2)}`;
+    $('overlayHost').innerHTML = `<div class="loadscreen" id="loadscreen">${row(teams[0])}<div class="ls-vs"><span>VS</span><small>${ROUND_NAMES[S.tour.round]} · ${bo}</small><i class="ls-bar"><em></em></i><small class="muted">Başlamak için tıkla</small></div>${row(teams[1])}</div>`;
+    let fired = false;
+    const go = () => { if (fired) return; fired = true; closeOverlay(); done(); };
+    $('loadscreen').addEventListener('click', go);
+    setTimeout(go, 5000);
   }
 
   function hudCard(u, side, i) {
