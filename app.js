@@ -1,9 +1,9 @@
 (() => {
+  const D = window.MayhemData;
   const M = window.Mayhem;
+  const R = window.MayhemRender;
   const DD = 'https://ddragon.leagueoflegends.com';
   const $ = id => document.getElementById(id);
-  const TAU = Math.PI * 2;
-  const STEP = 1 / 60;
 
   const COLORS = ['#4f8cff', '#ef4444', '#22c55e', '#f59e0b', '#a855f7', '#06b6d4', '#f97316', '#ec4899'];
   const AI_TEAMS = [
@@ -13,33 +13,26 @@
   ];
   const ROUND_NAMES = ['Çeyrek Final', 'Yarı Final', 'Final'];
   const BEST_OF = [1, 3, 3];
-  const STAT_LABELS = { hp: 'Can', ad: 'SG', ap: 'YG', armor: 'Zırh', mr: 'BD', as: 'Saldırı Hızı', crit: 'Kritik', ls: 'Can Çalma', ms: 'Hareket Hızı' };
 
   const S = {
-    v: null, champs: null,
+    v: null, champs: null, runes: [], keystones: {}, trees: {}, summ: {}, detail: {},
     team: { name: '', tag: '', color: COLORS[0], roster: [] },
     tagTouched: false,
     draft: { idx: 0, options: [], rerolls: 3 },
-    itemIdx: 0,
-    tour: null,
-    speed: 1
+    loIdx: 0, loTab: 'items',
+    tour: null, speed: 1, autoUlt: false
   };
 
   // ---------- yardımcılar ----------
-  const shuffle = a => {
-    a = a.slice();
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-  };
+  const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fmt = n => Math.round(n).toLocaleString('tr-TR');
   const icon = c => `${DD}/cdn/${S.v}/img/champion/${c.image.full}`;
   const loadingArt = c => `${DD}/cdn/img/champion/loading/${c.id}_0.jpg`;
   const splashArt = c => `${DD}/cdn/img/champion/splash/${c.id}_0.jpg`;
   const itemIcon = id => `${DD}/cdn/${S.v}/img/item/${id}.png`;
-  const fmt = n => Math.round(n).toLocaleString('tr-TR');
+  const summIcon = id => `${DD}/cdn/${S.v}/img/spell/${id}.png`;
+  const runeIcon = path => `${DD}/cdn/img/${path}`;
 
   const imgCache = {};
   function img(url) {
@@ -49,14 +42,10 @@
 
   function show(id) {
     document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id));
-    lineup.hidden = !(id === 'draft' || id === 'items');
+    lineup.hidden = !(id === 'draft' || id === 'loadout');
     window.scrollTo(0, 0);
   }
-
-  function teamBadge(t, small) {
-    return `<span class="badge${small ? ' sm' : ''}" style="--c:${t.color}">${esc(t.tag)}</span>`;
-  }
-
+  const teamBadge = (t, small) => `<span class="badge${small ? ' sm' : ''}" style="--c:${t.color}">${esc(t.tag)}</span>`;
   function refreshTeamBits() {
     document.querySelectorAll('[data-team-badge]').forEach(b => { b.textContent = S.team.tag; b.style.setProperty('--c', S.team.color); });
     document.querySelectorAll('[data-team-name]').forEach(n => { n.textContent = S.team.name; });
@@ -64,14 +53,17 @@
 
   function itemStatLine(it) {
     const k = it.stats, out = [];
-    if (k.hp) out.push(`+${k.hp} Can`);
-    if (k.ad) out.push(`+${k.ad} SG`);
-    if (k.ap) out.push(`+${k.ap} YG`);
-    if (k.armor) out.push(`+${k.armor} Zırh`);
-    if (k.mr) out.push(`+${k.mr} BD`);
-    if (k.as) out.push(`%${Math.round(k.as * 100)} SH`);
-    if (k.crit) out.push(`%${Math.round(k.crit * 100)} Kritik`);
-    if (k.ls) out.push(`%${Math.round(k.ls * 100)} Can Çalma`);
+    if (k.FlatHPPoolMod) out.push(`+${k.FlatHPPoolMod} Can`);
+    if (k.FlatPhysicalDamageMod) out.push(`+${k.FlatPhysicalDamageMod} SG`);
+    if (k.FlatMagicDamageMod) out.push(`+${k.FlatMagicDamageMod} YG`);
+    if (k.FlatArmorMod) out.push(`+${k.FlatArmorMod} Zırh`);
+    if (k.FlatSpellBlockMod) out.push(`+${k.FlatSpellBlockMod} BD`);
+    if (k.PercentAttackSpeedMod) out.push(`%${Math.round(k.PercentAttackSpeedMod * 100)} SH`);
+    if (k.FlatCritChanceMod) out.push(`%${Math.round(k.FlatCritChanceMod * 100)} Kritik`);
+    if (k.PercentLifeStealMod) out.push(`%${Math.round(k.PercentLifeStealMod * 100)} Can Çalma`);
+    if (it.ah) out.push(`${it.ah} YH`);
+    if (it.fx && it.fx.leth) out.push(`${it.fx.leth} Ölümcüllük`);
+    if (k.FlatMovementSpeedMod) out.push(`+${k.FlatMovementSpeedMod} HH`);
     return out.join(' · ');
   }
 
@@ -85,12 +77,18 @@
   async function load() {
     try {
       S.v = (await getJSON(`${DD}/api/versions.json`))[0];
-      const [c, i] = await Promise.all([
-        getJSON(`${DD}/cdn/${S.v}/data/tr_TR/champion.json`),
-        getJSON(`${DD}/cdn/${S.v}/data/tr_TR/item.json`)
+      const base = `${DD}/cdn/${S.v}/data/tr_TR`;
+      const [c, i, r, s] = await Promise.all([
+        getJSON(`${base}/champion.json`), getJSON(`${base}/item.json`), getJSON(`${base}/runesReforged.json`), getJSON(`${base}/summoner.json`)
       ]);
       S.champs = c.data;
-      for (const it of M.ITEMS) it.name = i.data[it.id] ? i.data[it.id].name : `Item ${it.id}`;
+      M.setItemData(i);
+      S.runes = r;
+      for (const tree of r) {
+        S.trees[tree.id] = tree;
+        for (const k of tree.slots[0].runes) if (D.KEYSTONES[k.id]) S.keystones[k.id] = { ...k, tree: tree.id };
+      }
+      for (const id in D.SUMMONERS) if (s.data[id]) S.summ[id] = s.data[id];
       $('loadNote').textContent = `${Object.keys(S.champs).length} şampiyon · yama ${S.v}`;
       updateIntro();
     } catch (e) {
@@ -99,13 +97,24 @@
     }
   }
 
+  async function detail(id) {
+    if (S.detail[id]) return S.detail[id];
+    try {
+      const d = (await getJSON(`${DD}/cdn/${S.v}/data/tr_TR/champion/${id}.json`)).data[id];
+      const r = d.spells[3];
+      S.detail[id] = { ultName: r.name, ultIcon: `${DD}/cdn/${S.v}/img/spell/${r.image.full}` };
+    } catch (e) {
+      S.detail[id] = { ultName: 'Ulti', ultIcon: icon(S.champs[id]) };
+    }
+    return S.detail[id];
+  }
+
   // ---------- 1. giriş ----------
   function autoTag(name) {
     const words = name.trim().split(/\s+/).filter(Boolean);
     const t = words.length > 1 ? words.map(w => w[0]).join('') : (words[0] || '');
     return t.slice(0, 3).toLocaleUpperCase('tr');
   }
-
   function updateIntro() {
     const name = $('teamName').value.trim();
     if (!S.tagTouched) $('teamTag').value = autoTag(name);
@@ -113,11 +122,9 @@
     $('pvBadge').textContent = tag;
     $('pvBadge').style.setProperty('--c', S.team.color);
     $('pvName').textContent = name || 'Takımın';
-    const ok = !!S.champs && name.length >= 2;
-    $('toDraft').disabled = !ok;
+    $('toDraft').disabled = !(S.champs && name.length >= 2);
     if (S.champs) $('toDraft').textContent = 'Takımı kur →';
   }
-
   $('swatches').innerHTML = COLORS.map((c, i) => `<button type="button" class="swatch${i ? '' : ' on'}" style="--c:${c}" data-c="${c}" aria-label="Renk"></button>`).join('');
   $('swatches').addEventListener('click', e => {
     const b = e.target.closest('.swatch');
@@ -133,7 +140,6 @@
     S.team.name = $('teamName').value.trim();
     S.team.tag = ($('teamTag').value.trim() || autoTag(S.team.name)).toLocaleUpperCase('tr');
     S.team.roster = [];
-    S.team.isUser = true;
     document.documentElement.style.setProperty('--team', S.team.color);
     refreshTeamBits();
     S.draft = { idx: 0, options: draftOptions(0), rerolls: 3 };
@@ -141,7 +147,7 @@
     show('draft');
   });
 
-  // ---------- alt dizilim çubuğu ----------
+  // ---------- alt çubuk ----------
   const lineup = document.createElement('div');
   lineup.className = 'lineup';
   lineup.hidden = true;
@@ -149,12 +155,13 @@
   document.body.appendChild(lineup);
 
   function renderLineup(activeIdx, action) {
-    $('slots').innerHTML = M.ROLES.map((role, i) => {
+    $('slots').innerHTML = D.ROLES.map((role, i) => {
       const r = S.team.roster[i];
-      const dots = r && r.items.length ? `<div class="items-dots">${r.items.map(id => `<img src="${itemIcon(id)}" alt="">`).join('')}</div>` : '';
+      const list = r ? [r.boots, ...r.items].filter(Boolean) : [];
+      const dots = list.length ? `<div class="items-dots">${list.map(id => `<img src="${itemIcon(id)}" alt="">`).join('')}</div>` : '';
       return `<div class="slot${i === activeIdx ? ' on' : ''}" data-i="${i}">
         <div class="ico">${r ? `<img src="${icon(r.champ)}" alt="">` : ''}</div>
-        <div class="txt"><small>${M.ROLE_SHORT[role]}</small><b>${r ? esc(r.champ.name) : '—'}</b>${dots}</div>
+        <div class="txt"><small>${D.ROLE_SHORT[role]}</small><b>${r ? esc(r.champ.name) : '—'}</b>${dots}</div>
       </div>`;
     }).join('');
     $('lineupAction').innerHTML = action || '';
@@ -163,40 +170,48 @@
   // ---------- 2. draft ----------
   function draftOptions(idx) {
     const taken = new Set(S.team.roster.slice(0, idx).map(r => r.champ.id));
-    const pool = M.rolePool(M.ROLES[idx], S.champs).filter(id => !taken.has(id));
+    const pool = D.ROLE_POOLS[D.ROLES[idx]].filter(id => S.champs[id] && !taken.has(id));
     return shuffle(pool).slice(0, 5).map(id => S.champs[id]);
   }
-
-  function bar(label, v, color) {
-    return `<div class="bar"><span>${label}</span><i style="--v:${v * 10}%;--bc:${color}"></i></div>`;
-  }
+  const bar = (label, v, color) => `<div class="bar"><span>${label}</span><i style="--v:${v * 10}%;--bc:${color}"></i></div>`;
 
   function renderDraft() {
     const { idx, options, rerolls } = S.draft;
-    const role = M.ROLES[idx];
-    $('draftSteps').innerHTML = M.ROLES.map((r, i) => `<span class="step${i === idx ? ' on' : i < idx ? ' done' : ''}">${M.ROLE_SHORT[r]}</span>`).join('');
+    const role = D.ROLES[idx];
+    $('draftSteps').innerHTML = D.ROLES.map((r, i) => `<span class="step${i === idx ? ' on' : i < idx ? ' done' : ''}">${D.ROLE_SHORT[r]}</span>`).join('');
     $('draftEyebrow').textContent = `Seçim ${idx + 1} / 5`;
-    $('draftTitle').textContent = `${M.ROLE_NAMES[role]} için şampiyonunu seç`;
+    $('draftTitle').textContent = `${D.ROLE_NAMES[role]} için şampiyonunu seç`;
     $('reroll').textContent = `↻ Başka 5 göster (${rerolls})`;
     $('reroll').disabled = rerolls <= 0;
     $('draftBack').disabled = idx === 0;
     $('picks').innerHTML = options.map((c, i) => {
-      const arch = M.archetype(c);
+      const cls = D.classOf(c);
+      const det = S.detail[c.id];
       return `<button class="pick" type="button" data-i="${i}">
         <div class="art"><img src="${loadingArt(c)}" alt="${esc(c.name)}"></div>
         <div class="meta">
           <div class="name">${esc(c.name)}</div>
           <div class="title">${esc(c.title)}</div>
-          <div class="chips"><span class="chip gold">${M.ARCH_NAMES[arch]}</span><span class="chip">${c.stats.attackrange >= 300 ? 'Uzak menzil' : 'Yakın dövüş'}</span></div>
-          <div class="bars">
-            ${bar('Saldırı', c.info.attack, '#f59e0b')}
-            ${bar('Savunma', c.info.defense, '#34d399')}
-            ${bar('Büyü', c.info.magic, '#a78bfa')}
-          </div>
+          <div class="chips"><span class="chip gold">${D.CLASS_NAMES[cls]}</span><span class="chip">${c.stats.attackrange >= 300 ? 'Uzak' : 'Yakın'}</span></div>
+          <div class="ult-line" data-ult="${c.id}">${ultLine(c, det)}</div>
+          <div class="bars">${bar('Saldırı', c.info.attack, '#f59e0b')}${bar('Savunma', c.info.defense, '#34d399')}${bar('Büyü', c.info.magic, '#a78bfa')}</div>
         </div>
       </button>`;
     }).join('');
     renderLineup(idx);
+    options.forEach(c => detail(c.id).then(det => {
+      const el = document.querySelector(`[data-ult="${c.id}"]`);
+      if (el) el.innerHTML = ultLine(c, det);
+    }));
+  }
+
+  function ultLine(c, det) {
+    return `${det ? `<img src="${det.ultIcon}" alt="">` : '<img alt="" style="opacity:0">'}<div><b>R · ${det ? esc(det.ultName) : '…'}</b><span>${esc(D.ultDesc(c))}</span></div>`;
+  }
+
+  function defaultLoadout(c) {
+    const b = D.buildFor(c);
+    return { boots: b.boots, items: b.core.slice(0, 4), keystone: b.keystone, secondary: b.secondary, summs: b.summ.slice() };
   }
 
   $('picks').addEventListener('click', e => {
@@ -204,14 +219,11 @@
     if (!b) return;
     const c = S.draft.options[+b.dataset.i];
     const idx = S.draft.idx;
-    S.team.roster[idx] = { role: M.ROLES[idx], champ: c, items: [] };
+    const b0 = D.buildFor(c);
+    S.team.roster[idx] = { role: D.ROLES[idx], champ: c, boots: null, items: [], keystone: b0.keystone, secondary: b0.secondary, summs: b0.summ.slice() };
     S.team.roster.length = idx + 1;
-    if (idx === 4) {
-      S.itemIdx = 0;
-      renderItems();
-      show('items');
-      return;
-    }
+    detail(c.id);
+    if (idx === 4) { S.loIdx = 0; S.loTab = 'items'; renderLoadout(); show('loadout'); return; }
     S.draft.idx++;
     S.draft.options = draftOptions(S.draft.idx);
     renderDraft();
@@ -231,177 +243,256 @@
     renderDraft();
   });
 
-  // ---------- 3. itemler ----------
+  // ---------- 3. dizilim ----------
+  const complete = r => r.boots && r.items.length === 4 && r.keystone && r.secondary && r.summs.length === 2;
+
   function fitInfo(r) {
-    const arch = M.archetype(r.champ);
-    const rec = M.RECOMMENDED[arch];
-    const fit = r.items.filter(id => rec.includes(id)).length;
-    const magic = arch === 'ap' || arch === 'apBruiser' || arch === 'enchanter';
-    const physical = arch === 'adc' || arch === 'lethal' || arch === 'bruiser';
+    const b = D.buildFor(r.champ);
+    const rec = new Set([...b.core, ...b.alt]);
+    const fit = r.items.filter(id => rec.has(id)).length;
+    const cls = D.classOf(r.champ);
+    const magic = ['apAssassin', 'mage', 'battlemage', 'apBruiser', 'enchanter', 'mageSup'].includes(cls);
+    const physical = ['marksman', 'onhit', 'caster', 'assassin', 'fighter'].includes(cls);
+    const cats = r.items.map(id => M.ITEMS[id] && M.ITEMS[id].cat);
     let warn = '';
-    const cats = r.items.map(id => M.ITEM_BY_ID[id].cat);
-    if (magic && cats.some(c => c === 'crit' || c === 'lethal' || c === 'fighter')) warn = 'Bu şampiyon büyü hasarı vuruyor; saldırı gücü itemleri yeteneklerini güçlendirmez.';
-    else if (physical && cats.includes('ap')) warn = 'Bu şampiyon fiziksel hasar vuruyor; yetenek gücü burada boşa gider.';
-    else if (arch === 'enchanter' && !cats.includes('support') && r.items.length === 3) warn = 'Destek itemleri olmadan iyileştirmelerin zayıf kalır.';
-    const labels = ['Uyumsuz', 'Zayıf', 'İyi', 'Mükemmel'];
-    const colors = ['#f87171', '#fb923c', '#facc15', '#34d399'];
+    if (magic && cls !== 'apBruiser' && cats.some(c => c === 'crit' || c === 'assassin' || c === 'caster')) warn = 'Bu şampiyon büyü hasarı vuruyor; saldırı gücü itemleri yeteneklerini güçlendirmez.';
+    else if (physical && cats.includes('mage') && !['Kaisa', 'Kayle'].includes(r.champ.id)) warn = 'Bu şampiyon fiziksel hasar vuruyor; yetenek gücü burada boşa gider.';
+    else if (cls === 'enchanter' && r.items.length === 4 && !cats.includes('support')) warn = 'Destek itemleri olmadan iyileştirmelerin zayıf kalır.';
+    else if ((cls === 'tank' || cls === 'engage') && r.items.length === 4 && !cats.some(c => c === 'tank' || c === 'support')) warn = 'Tank itemleri olmadan ön safta hızla erirsin.';
+    const labels = ['Uyumsuz', 'Zayıf', 'Orta', 'İyi', 'Mükemmel'];
+    const colors = ['#f87171', '#fb923c', '#facc15', '#a3e635', '#34d399'];
     return { fit, label: labels[fit], color: colors[fit], warn };
   }
 
-  function renderItems() {
-    const idx = S.itemIdx;
+  function renderLoadout() {
+    const idx = S.loIdx;
     const r = S.team.roster[idx];
     const c = r.champ;
-    const arch = M.archetype(c);
-    const rec = M.RECOMMENDED[arch];
+    const cls = D.classOf(c);
+    const det = S.detail[c.id];
+    if (!det) detail(c.id).then(() => { if (S.loIdx === idx) renderLoadout(); });
 
-    $('itemSteps').innerHTML = S.team.roster.map((x, i) =>
-      `<button type="button" class="step${i === idx ? ' on' : x.items.length === 3 ? ' done' : ''}" data-i="${i}" style="cursor:pointer">${x.items.length === 3 ? '✓ ' : ''}${esc(x.champ.name)}</button>`).join('');
+    $('loSteps').innerHTML = S.team.roster.map((x, i) => `<button type="button" class="step${i === idx ? ' on' : complete(x) ? ' done' : ''}" data-i="${i}">${complete(x) ? '✓ ' : ''}${esc(x.champ.name)}</button>`).join('');
+    document.querySelectorAll('#loTabs .tab').forEach(t => t.classList.toggle('on', t.dataset.tab === S.loTab));
 
-    const base = M.computeStats(c, []);
-    const cur = M.computeStats(c, r.items);
-    const stat = (label, a, b, f = v => fmt(v)) => {
-      const diff = b - a;
-      return `<div class="stat"><small>${label}</small><b>${f(b)}</b>${diff > 0.001 ? `<em>+${f(diff)}</em>` : ''}</div>`;
-    };
+    const lo = { items: [r.boots, ...r.items].filter(Boolean), secondary: r.secondary };
+    const base = M.computeStats(c, { items: [] });
+    const cur = M.computeStats(c, lo);
+    const HM = M.HP_MULT;
+    const stat = (label, a, b, f = v => fmt(v)) => `<div class="stat"><small>${label}</small><b>${f(b)}</b>${b - a > 0.001 ? `<em>+${f(b - a)}</em>` : ''}</div>`;
     const fi = fitInfo(r);
+    const gold = [r.boots, ...r.items].filter(Boolean).reduce((t, id) => t + (M.ITEMS[id] ? M.ITEMS[id].gold : 0), 0);
     $('champPanel').innerHTML = `
       <div class="art"><img src="${splashArt(c)}" alt=""></div>
       <div class="body">
-        <div class="eyebrow">${M.ROLE_NAMES[r.role]}</div>
+        <div class="eyebrow">${D.ROLE_NAMES[r.role]}</div>
         <h3>${esc(c.name)}</h3>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><span class="chip gold">${M.ARCH_NAMES[arch]}</span><span class="chip">${c.stats.attackrange >= 300 ? 'Uzak menzil' : 'Yakın dövüş'}</span></div>
-        <div class="desc">${M.ARCH_DESC[arch]}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><span class="chip gold">${D.CLASS_NAMES[cls]}</span><span class="chip">Seviye ${M.LEVEL}</span><span class="chip">${fmt(gold)} altın</span></div>
+        <div class="desc">${D.CLASS_DESC[cls]}</div>
+        <div class="ult-line">${ultLine(c, det)}</div>
         <div class="stats">
-          ${stat('Can', base.hp * 1.3, cur.hp * 1.3)}
+          ${stat('Can', base.hp * HM, cur.hp * HM)}
           ${stat('Saldırı Gücü', base.ad, cur.ad)}
           ${stat('Yetenek Gücü', base.ap, cur.ap)}
           ${stat('Saldırı Hızı', base.as, cur.as, v => v.toFixed(2))}
           ${stat('Zırh', base.armor, cur.armor)}
           ${stat('Büyü Direnci', base.mr, cur.mr)}
           ${stat('Kritik', base.crit * 100, cur.crit * 100, v => `%${Math.round(v)}`)}
-          ${stat('Can Çalma', base.ls * 100, cur.ls * 100, v => `%${Math.round(v)}`)}
+          ${stat('Yetenek Hızı', base.ah, cur.ah)}
         </div>
         <div class="fit">
-          Item uyumu: <b style="color:${fi.color}">${r.items.length ? fi.label : '—'}</b>
-          <div class="meter" style="--fc:${fi.color}">${[0, 1, 2].map(i => `<i class="${i < fi.fit ? 'on' : ''}"></i>`).join('')}</div>
+          Build uyumu: <b style="color:${fi.color}">${r.items.length ? fi.label : '—'}</b>
+          <div class="meter" style="--fc:${fi.color}">${[0, 1, 2, 3].map(i => `<i class="${i < fi.fit ? 'on' : ''}"></i>`).join('')}</div>
           ${fi.warn ? `<div style="margin-top:8px;color:#fca5a5;font-size:12px;line-height:1.45">⚠ ${fi.warn}</div>` : ''}
         </div>
       </div>`;
 
-    $('chosen').innerHTML = [0, 1, 2].map(i => {
-      const id = r.items[i];
-      if (!id) return `<div class="cslot">Boş slot ${i + 1}</div>`;
-      const it = M.ITEM_BY_ID[id];
-      return `<div class="cslot full" data-id="${id}" title="Çıkarmak için tıkla"><img src="${itemIcon(id)}" alt=""><div><b>${esc(it.name)}</b><div class="muted" style="font-size:11px">Çıkar ✕</div></div></div>`;
-    }).join('');
+    if (S.loTab === 'items') renderItemsTab(r);
+    else if (S.loTab === 'runes') renderRunesTab(r);
+    else renderSummTab(r);
 
-    const tile = it => {
-      const sel = r.items.includes(it.id);
-      const dis = !sel && r.items.length >= 3;
-      return `<button type="button" class="item${sel ? ' sel' : ''}" data-id="${it.id}" ${dis ? 'disabled' : ''}>
-        <img src="${itemIcon(it.id)}" alt="" loading="lazy">
-        <div><b>${esc(it.name)}</b><div class="st">${itemStatLine(it)}</div><div class="d">${esc(it.desc)}</div></div>
-        ${rec.includes(it.id) ? '<span class="rec">★</span>' : ''}
-      </button>`;
-    };
-    let html = `<div class="cat-title">★ ${M.ARCH_NAMES[arch]} için önerilen</div><div class="item-grid">${rec.map(id => tile(M.ITEM_BY_ID[id])).join('')}</div>`;
-    for (const cat in M.ITEM_CATS) {
-      const list = M.ITEMS.filter(it => it.cat === cat && !rec.includes(it.id));
-      if (list.length) html += `<div class="cat-title">${M.ITEM_CATS[cat]}</div><div class="item-grid">${list.map(tile).join('')}</div>`;
-    }
-    $('itemCats').innerHTML = html;
-
-    const allDone = S.team.roster.every(x => x.items.length === 3);
-    const nextIdx = S.team.roster.findIndex((x, i) => i !== idx && x.items.length < 3);
+    const allDone = S.team.roster.every(complete);
+    const next = S.team.roster.findIndex((x, i) => i !== idx && !complete(x));
     let action;
     if (allDone) action = '<button class="btn" id="startTour">Turnuvaya başla →</button>';
-    else if (nextIdx < 0) action = '<button class="btn" disabled>3 item seç</button>';
-    else action = `<button class="btn" id="nextChamp" ${r.items.length < 3 ? 'disabled' : ''}>Sonraki: ${esc(S.team.roster[nextIdx].champ.name)} →</button>`;
+    else if (next < 0) action = '<button class="btn" disabled>Dizilimi tamamla</button>';
+    else action = `<button class="btn" id="nextChamp" ${complete(r) ? '' : 'disabled'}>Sonraki: ${esc(S.team.roster[next].champ.name)} →</button>`;
     renderLineup(idx, action);
   }
 
-  function toggleItem(id) {
-    const r = S.team.roster[S.itemIdx];
-    const i = r.items.indexOf(id);
-    if (i >= 0) r.items.splice(i, 1);
-    else if (r.items.length < 3) r.items.push(id);
-    renderItems();
+  function renderItemsTab(r) {
+    const b = D.buildFor(r.champ);
+    const recSet = new Set(b.core);
+    const altSet = new Set(b.alt);
+    const slot = (id, i, boots) => {
+      if (!id) return `<div class="cslot${boots ? ' boots' : ''}">${boots ? 'Ayakkabı' : `Item ${i}`}</div>`;
+      const it = M.ITEMS[id];
+      return `<div class="cslot full${boots ? ' boots' : ''}" data-rm="${id}" title="Çıkarmak için tıkla"><img src="${itemIcon(id)}" alt=""><div style="min-width:0"><b>${esc(it.name)}</b><span class="muted" style="font-size:10px">Çıkar ✕</span></div></div>`;
+    };
+    const tile = it => {
+      const isBoots = it.cat === 'boots';
+      const sel = isBoots ? r.boots === it.id : r.items.includes(it.id);
+      const dis = !sel && !isBoots && r.items.length >= 4;
+      const tag = recSet.has(it.id) || b.boots === it.id ? '★ ÖNERİLEN' : altSet.has(it.id) ? 'ALTERNATİF' : '';
+      return `<button type="button" class="item${sel ? ' sel' : ''}" data-id="${it.id}" ${dis ? 'disabled' : ''}>
+        <img src="${itemIcon(it.id)}" alt="" loading="lazy">
+        <div><b>${esc(it.name)}</b><div class="st">${itemStatLine(it)}</div><div class="d">${esc(it.desc)}</div></div>
+        ${tag ? `<span class="rec">${tag}</span>` : ''}<span class="gold">${fmt(it.gold)}</span>
+      </button>`;
+    };
+    const all = Object.values(M.ITEMS);
+    const recList = [...b.core, ...b.alt].map(id => M.ITEMS[id]).filter(Boolean);
+    let html = `<div class="chosen">${slot(r.boots, 0, true)}${[0, 1, 2, 3].map(i => slot(r.items[i], i + 1)).join('')}</div>`;
+    html += `<div class="legend"><b>★</b> profesyonellerin bu sınıfta kurduğu çekirdek build, <b>ALTERNATİF</b> duruma göre alınanlar. Diğerlerini de seçebilirsin, savaşta etkisini görürsün.</div>`;
+    html += `<div class="cat-title">Ayakkabı</div><div class="item-grid">${all.filter(it => it.cat === 'boots').map(tile).join('')}</div>`;
+    html += `<div class="cat-title">★ ${D.CLASS_NAMES[D.classOf(r.champ)]} için</div><div class="item-grid">${recList.map(tile).join('')}</div>`;
+    for (const cat in D.ITEM_CATS) {
+      if (cat === 'boots') continue;
+      const list = all.filter(it => it.cat === cat && !recSet.has(it.id) && !altSet.has(it.id));
+      if (list.length) html += `<div class="cat-title">${D.ITEM_CATS[cat]}</div><div class="item-grid">${list.map(tile).join('')}</div>`;
+    }
+    $('loBody').innerHTML = html;
   }
 
-  function goNextChamp() {
-    const next = S.team.roster.findIndex((x, i) => i !== S.itemIdx && x.items.length < 3);
-    if (next >= 0) { S.itemIdx = next; renderItems(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  function renderRunesTab(r) {
+    const b = D.buildFor(r.champ);
+    const primaryTree = S.keystones[r.keystone] ? S.keystones[r.keystone].tree : null;
+    const trees = S.runes.filter(t => t.slots[0].runes.some(k => D.KEYSTONES[k.id]));
+    let html = `<div class="cat-title" style="margin-top:0">Ana rün</div><div class="trees">`;
+    for (const t of trees) {
+      html += `<div class="tree${primaryTree === t.id ? ' on' : ''}"><h4><img src="${runeIcon(t.icon)}" alt="">${esc(t.name)}</h4>`;
+      for (const k of t.slots[0].runes) {
+        if (!D.KEYSTONES[k.id]) continue;
+        html += `<button type="button" class="ks${r.keystone === k.id ? ' on' : ''}${b.keystone === k.id ? ' rec' : ''}" data-ks="${k.id}"><img src="${runeIcon(k.icon)}" alt=""><span>${esc(k.name)}</span></button>`;
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    const ks = S.keystones[r.keystone];
+    if (ks) html += `<div class="rune-desc"><b>${esc(ks.name)}:</b> ${esc(D.KEYSTONES[ks.id])}</div>`;
+    html += `<div class="cat-title">İkincil yol</div><div class="secs">`;
+    for (const id in D.SECONDARY) {
+      if (+id === primaryTree) continue;
+      const t = S.trees[id];
+      if (!t) continue;
+      html += `<button type="button" class="sec${r.secondary === +id ? ' on' : ''}" data-sec="${id}"><img src="${runeIcon(t.icon)}" alt=""><div><b>${esc(t.name)}${b.secondary === +id ? ' <span style="color:var(--gold)">★</span>' : ''}</b><span>${esc(D.SECONDARY[id].desc)}</span></div></button>`;
+    }
+    html += '</div>';
+    $('loBody').innerHTML = html;
   }
 
-  $('itemCats').addEventListener('click', e => {
-    const b = e.target.closest('.item');
-    if (b && !b.disabled) toggleItem(+b.dataset.id);
+  function renderSummTab(r) {
+    const b = D.buildFor(r.champ);
+    let html = `<div class="cat-title" style="margin-top:0">2 sihirdar büyüsü seç</div><div class="summ-grid">`;
+    for (const id in S.summ) {
+      const s = S.summ[id];
+      html += `<button type="button" class="summ${r.summs.includes(id) ? ' on' : ''}${b.summ.includes(id) ? ' rec' : ''}" data-summ="${id}"><img src="${summIcon(id)}" alt=""><div><b>${esc(s.name)}</b><span>${esc(D.SUMMONERS[id])}</span></div></button>`;
+    }
+    html += '</div>';
+    $('loBody').innerHTML = html;
+  }
+
+  $('loTabs').addEventListener('click', e => {
+    const t = e.target.closest('.tab');
+    if (t) { S.loTab = t.dataset.tab; renderLoadout(); }
   });
-  $('chosen').addEventListener('click', e => {
-    const b = e.target.closest('.cslot.full');
-    if (b) toggleItem(+b.dataset.id);
+  $('loBody').addEventListener('click', e => {
+    const r = S.team.roster[S.loIdx];
+    const it = e.target.closest('.item');
+    const rm = e.target.closest('[data-rm]');
+    const ks = e.target.closest('[data-ks]');
+    const sec = e.target.closest('[data-sec]');
+    const sm = e.target.closest('[data-summ]');
+    if (it && !it.disabled) {
+      const id = +it.dataset.id;
+      if (M.ITEMS[id].cat === 'boots') r.boots = r.boots === id ? null : id;
+      else {
+        const i = r.items.indexOf(id);
+        if (i >= 0) r.items.splice(i, 1);
+        else if (r.items.length < 4) r.items.push(id);
+      }
+    } else if (rm) {
+      const id = +rm.dataset.rm;
+      if (r.boots === id) r.boots = null; else r.items = r.items.filter(x => x !== id);
+    } else if (ks) {
+      r.keystone = +ks.dataset.ks;
+      if (S.keystones[r.keystone].tree === r.secondary) r.secondary = +Object.keys(D.SECONDARY).find(id => +id !== r.secondary);
+    } else if (sec) {
+      r.secondary = +sec.dataset.sec;
+    } else if (sm) {
+      const id = sm.dataset.summ;
+      if (r.summs.includes(id)) r.summs = r.summs.filter(x => x !== id);
+      else { r.summs.push(id); if (r.summs.length > 2) r.summs.shift(); }
+    } else return;
+    renderLoadout();
   });
-  $('itemSteps').addEventListener('click', e => {
+  $('loSteps').addEventListener('click', e => {
     const b = e.target.closest('.step');
-    if (b) { S.itemIdx = +b.dataset.i; renderItems(); }
+    if (b) { S.loIdx = +b.dataset.i; renderLoadout(); }
   });
   $('slots').addEventListener('click', e => {
     const b = e.target.closest('.slot');
-    if (b && $('items').classList.contains('active') && S.team.roster[+b.dataset.i]) { S.itemIdx = +b.dataset.i; renderItems(); }
+    if (b && $('loadout').classList.contains('active') && S.team.roster[+b.dataset.i]) { S.loIdx = +b.dataset.i; renderLoadout(); }
   });
-  $('autoOne').addEventListener('click', () => {
-    const r = S.team.roster[S.itemIdx];
-    r.items = M.RECOMMENDED[M.archetype(r.champ)].slice(0, 3);
-    renderItems();
-  });
-  $('autoAll').addEventListener('click', () => {
+  $('recOne').addEventListener('click', () => { Object.assign(S.team.roster[S.loIdx], defaultLoadout(S.team.roster[S.loIdx].champ)); renderLoadout(); });
+  $('recAll').addEventListener('click', () => {
     for (const r of S.team.roster) {
-      const rec = M.RECOMMENDED[M.archetype(r.champ)];
-      for (const id of rec) if (r.items.length < 3 && !r.items.includes(id)) r.items.push(id);
+      const d = defaultLoadout(r.champ);
+      if (!r.boots) r.boots = d.boots;
+      for (const id of [...d.items, ...D.buildFor(r.champ).alt]) if (r.items.length < 4 && !r.items.includes(id)) r.items.push(id);
+      if (!r.keystone) r.keystone = d.keystone;
+      if (!r.secondary) r.secondary = d.secondary;
+      if (r.summs.length < 2) r.summs = d.summs;
     }
-    renderItems();
+    renderLoadout();
   });
   lineup.addEventListener('click', e => {
-    if (e.target.closest('#nextChamp')) goNextChamp();
+    if (e.target.closest('#nextChamp')) {
+      const next = S.team.roster.findIndex((x, i) => i !== S.loIdx && !complete(x));
+      if (next >= 0) { S.loIdx = next; renderLoadout(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    }
     if (e.target.closest('#startTour')) startTournament();
   });
 
   // ---------- 4. turnuva ----------
   function aiTeam(name, tag, color) {
     const used = new Set();
-    const roster = M.ROLES.map(role => {
-      const pool = M.rolePool(role, S.champs).filter(id => !used.has(id));
+    const roster = D.ROLES.map(role => {
+      const pool = D.ROLE_POOLS[role].filter(id => S.champs[id] && !used.has(id));
       const id = pool[Math.floor(Math.random() * pool.length)];
       used.add(id);
       const champ = S.champs[id];
-      let items = shuffle(M.RECOMMENDED[M.archetype(champ)]).slice(0, 3);
-      // Yapay zeka arada bir yanlış item alır
-      if (Math.random() < 0.25) items[2] = shuffle(M.ITEMS.filter(it => !items.includes(it.id)))[0].id;
-      return { role, champ, items };
+      const lo = defaultLoadout(champ);
+      const b = D.buildFor(champ);
+      if (Math.random() < 0.5 && b.alt.length) lo.items[3] = shuffle(b.alt).find(x => !lo.items.includes(x)) || lo.items[3];
+      if (Math.random() < 0.2) lo.items[2] = shuffle(Object.keys(M.ITEMS).map(Number).filter(x => M.ITEMS[x].cat !== 'boots' && !lo.items.includes(x)))[0];
+      return { role, champ, ...lo };
     });
     return { name, tag, color, roster };
   }
 
-  function startTournament() {
+  async function startTournament() {
     const colors = shuffle(COLORS.filter(c => c !== S.team.color));
     const names = shuffle(AI_TEAMS).slice(0, 7);
     const teams = shuffle([S.team, ...names.map(([n, t], i) => aiTeam(n, t, colors[i % colors.length]))]);
     S.tour = {
       teams,
       rounds: [[0, 1, 2, 3].map(i => ({ a: teams[i * 2], b: teams[i * 2 + 1], wins: [0, 0], winner: null }))],
-      round: 0,
-      alive: true,
-      champion: null,
-      path: [],
-      stats: {}
+      round: 0, alive: true, champion: null, path: [], stats: {}
     };
-    S.team.roster.forEach(r => { S.tour.stats[r.champ.id] = { k: 0, d: 0, dmg: 0, heal: 0 }; });
+    S.team.roster.forEach(r => { S.tour.stats[r.champ.id] = { k: 0, d: 0, a: 0, dmg: 0, heal: 0 }; });
     renderBracket();
     show('bracketScreen');
+    await Promise.all(teams.flatMap(t => t.roster.map(r => detail(r.champ.id))));
   }
 
-  const simTeam = t => ({ name: t.name, color: t.color, roster: t.roster.map(r => ({ champ: r.champ, items: r.items, role: r.role })) });
+  const simTeam = t => ({
+    name: t.name, color: t.color,
+    roster: t.roster.map(r => {
+      const det = S.detail[r.champ.id] || {};
+      return { champ: r.champ, role: r.role, items: [r.boots, ...r.items].filter(Boolean), keystone: r.keystone, secondary: r.secondary, summs: r.summs, ultName: det.ultName || 'Ulti', ultIcon: det.ultIcon };
+    })
+  });
 
   function playSeriesHeadless(m, bo) {
     const need = Math.ceil(bo / 2);
@@ -436,119 +527,242 @@
       for (let i = 0; i < n; i++) {
         const m = round && round[i];
         if (!m) { cards.push('<div class="match"><div class="mrow tbd">Belli değil</div><div class="mrow tbd">Belli değil</div></div>'); continue; }
-        const row = (t, w) => {
-          const cls = m.winner ? (m.winner === t ? ' w' : ' l') : '';
-          return `<div class="mrow${cls}">${teamBadge(t, true)}<span class="n">${esc(t.name)}</span><span class="s">${m.winner || w ? w : ''}</span></div>`;
-        };
-        const me = m.a === S.team || m.b === S.team;
-        cards.push(`<div class="match${me ? ' me' : ''}">${row(m.a, m.wins[0])}${row(m.b, m.wins[1])}</div>`);
+        const row = (t, w) => `<div class="mrow${m.winner ? (m.winner === t ? ' w' : ' l') : ''}">${teamBadge(t, true)}<span class="n">${esc(t.name)}</span><span class="s">${m.winner || w ? w : ''}</span></div>`;
+        cards.push(`<div class="match${m.a === S.team || m.b === S.team ? ' me' : ''}">${row(m.a, m.wins[0])}${row(m.b, m.wins[1])}</div>`);
       }
       return `<div class="round-col"><h3>${ROUND_NAMES[ri]} · ${BEST_OF[ri] === 1 ? 'Tek maç' : 'Bo' + BEST_OF[ri]}</h3>${cards.join('')}</div>`;
     });
-    const champ = T.champion;
-    cols.push(`<div class="round-col"><h3>Şampiyon</h3><div class="trophy"><div class="cup">🏆</div><b>${champ ? esc(champ.name) : '?'}</b></div></div>`);
+    cols.push(`<div class="round-col"><h3>Şampiyon</h3><div class="trophy"><div class="cup">🏆</div><b>${T.champion ? esc(T.champion.name) : '?'}</b></div></div>`);
     $('bracket').innerHTML = cols.join('');
-
-    let stage;
-    if (T.champion) stage = 'Turnuva bitti';
-    else if (!T.alive) stage = 'Elendin';
-    else stage = ROUND_NAMES[T.round];
-    $('bracketStage').textContent = stage;
+    $('bracketStage').textContent = T.champion ? 'Turnuva bitti' : !T.alive ? 'Elendin' : ROUND_NAMES[T.round];
 
     const m = !T.champion && T.alive ? userMatch() : null;
     if (m) {
       const opp = m.a === S.team ? m.b : m.a;
-      const icons = t => `<div class="icons">${t.roster.map(r => `<img src="${icon(r.champ)}" alt="${esc(r.champ.name)}" title="${esc(r.champ.name)} · ${M.ARCH_NAMES[M.archetype(r.champ)]}">`).join('')}</div>`;
+      const icons = t => `<div class="icons">${t.roster.map(r => `<img src="${icon(r.champ)}" alt="${esc(r.champ.name)}" title="${esc(r.champ.name)} · ${D.CLASS_NAMES[D.classOf(r.champ)]}">`).join('')}</div>`;
       $('nextMatch').innerHTML = `
         <div class="next-card">
           <div class="side"><div class="tname">${teamBadge(S.team)}${esc(S.team.name)}</div>${icons(S.team)}</div>
           <div class="vs-big">VS<small>${ROUND_NAMES[T.round].toLocaleUpperCase('tr')} · ${BEST_OF[T.round] === 1 ? 'TEK MAÇ' : `${BEST_OF[T.round]} MAÇTA ${Math.ceil(BEST_OF[T.round] / 2)}`}</small></div>
           <div class="side r"><div class="tname">${teamBadge(opp)}${esc(opp.name)}</div>${icons(opp)}</div>
         </div>
-        <div class="center-actions"><button class="btn" id="playMatch">Maça çık ⚔</button></div>`;
+        <div class="center-actions"><button class="btn ghost" id="editLoadout">Dizilimi düzenle</button><button class="btn" id="playMatch">Maça çık ⚔</button></div>`;
     } else if (!T.champion) {
-      $('nextMatch').innerHTML = `<div class="center-actions"><button class="btn" id="simRest">Turnuvanın kalanını oynat</button></div>`;
+      $('nextMatch').innerHTML = '<div class="center-actions"><button class="btn" id="simRest">Turnuvanın kalanını oynat</button></div>';
     } else {
-      $('nextMatch').innerHTML = `<div class="center-actions"><button class="btn" id="toEnd">Turnuva özeti →</button></div>`;
+      $('nextMatch').innerHTML = '<div class="center-actions"><button class="btn" id="toEnd">Turnuva özeti →</button></div>';
     }
   }
 
-  $('bracketScreen').addEventListener('click', e => {
-    if (e.target.closest('#playMatch')) startSeries();
-    if (e.target.closest('#simRest')) {
-      while (!S.tour.champion) finishRound();
-      renderBracket();
+  $('bracketScreen').addEventListener('click', async e => {
+    if (e.target.closest('#playMatch')) {
+      e.target.closest('#playMatch').disabled = true;
+      await Promise.all(S.tour.teams.flatMap(t => t.roster.map(r => detail(r.champ.id))));
+      startSeries();
     }
+    if (e.target.closest('#editLoadout')) {
+      S.loIdx = 0; S.loTab = 'items'; S.editing = true;
+      renderLoadout(); show('loadout');
+      $('lineupAction').innerHTML = '<button class="btn" id="backToBracket">Fikstüre dön →</button>';
+    }
+    if (e.target.closest('#simRest')) { while (!S.tour.champion) finishRound(); renderBracket(); }
     if (e.target.closest('#toEnd')) renderEnd();
   });
+  lineup.addEventListener('click', e => {
+    if (e.target.closest('#backToBracket')) {
+      if (!S.team.roster.every(complete)) return;
+      S.editing = false;
+      renderBracket(); show('bracketScreen');
+    }
+  });
+  const origRenderLoadout = renderLoadout;
+  renderLoadout = function () {
+    origRenderLoadout();
+    if (S.editing && S.tour) $('lineupAction').innerHTML = `<button class="btn" id="backToBracket" ${S.team.roster.every(complete) ? '' : 'disabled'}>Fikstüre dön →</button>`;
+  };
 
   // ---------- 5. savaş ----------
-  let series = null;
-  let viewer = null;
+  let series = null, viewer = null, multi = {};
 
   function startSeries() {
-    const T = S.tour;
     const m = userMatch();
     const opp = m.a === S.team ? m.b : m.a;
-    series = { m, opp, bo: BEST_OF[T.round], wins: [0, 0], game: 0 };
+    series = { m, opp, bo: BEST_OF[S.tour.round], wins: [0, 0], game: 0 };
     show('battle');
     startGame();
   }
 
+  function hudCard(u, side, i) {
+    const det = S.detail[u.champ.id] || {};
+    const col = side ? series.opp.color : S.team.color;
+    return `<div class="pc" style="--c:${col}" data-uid="${u.uid}">
+      <div class="por"><img src="${icon(u.champ)}" alt=""><span class="lv">${M.LEVEL}</span><span class="cdt"></span></div>
+      <div style="min-width:0">
+        <div class="nm"><span>${esc(u.champ.name)}</span><em class="kda">0/0/0</em></div>
+        <div class="hp"><i></i><b></b></div>
+        <div class="row">
+          <button class="ultbtn" type="button" data-ult="${u.uid}" title="${esc(det.ultName || 'Ulti')}"><img src="${det.ultIcon || icon(u.champ)}" alt=""><span class="key">${side ? 'R' : i + 1}</span></button>
+          ${u.summs.map(s => `<img class="sm" data-s="${s}" src="${summIcon(s)}" alt="">`).join('')}
+        </div>
+      </div>
+    </div>`;
+  }
+
   function startGame() {
     series.game++;
-    const sim = new M.Sim([simTeam(S.team), simTeam(series.opp)]);
+    multi = {};
+    const sim = new M.Sim([simTeam(S.team), simTeam(series.opp)], { manual: [!S.autoUlt, false] });
     const teams = [S.team, series.opp];
     $('sbA').innerHTML = `${teamBadge(S.team)}<span class="tn">${esc(S.team.name)}</span><span class="k" id="kA">0</span>`;
     $('sbB').innerHTML = `${teamBadge(series.opp)}<span class="tn">${esc(series.opp.name)}</span><span class="k" id="kB">0</span>`;
-    $('sbSeries').textContent = series.bo === 1
-      ? `${ROUND_NAMES[S.tour.round]} · Tek maç`
-      : `${ROUND_NAMES[S.tour.round]} · Maç ${series.game} · ${series.wins[0]}-${series.wins[1]}`;
-    const rost = side => sim.units.filter(u => u.side === side).map(u =>
-      `<div class="ru" style="--c:${teams[side].color}"><img src="${icon(u.champ)}" alt="${esc(u.champ.name)}"><div style="min-width:0;width:100%"><div class="hp"><i></i></div><div class="kd">0/0 · 0</div></div></div>`).join('');
-    $('rostA').innerHTML = rost(0);
-    $('rostB').innerHTML = rost(1);
+    $('sbSeries').textContent = series.bo === 1 ? `${ROUND_NAMES[S.tour.round]} · Tek maç` : `${ROUND_NAMES[S.tour.round]} · Maç ${series.game} · ${series.wins[0]}-${series.wins[1]}`;
+    $('hudA').innerHTML = sim.units.filter(u => u.side === 0).map((u, i) => hudCard(u, 0, i)).join('');
+    $('hudB').innerHTML = sim.units.filter(u => u.side === 1).map((u, i) => hudCard(u, 1, i)).join('');
     $('killfeed').innerHTML = '';
-    $('ultHost').innerHTML = '';
+    $('fxHost').innerHTML = '';
     if (viewer) viewer.stop();
-    viewer = new Viewer(sim, teams, onGameEnd);
+    viewer = new R.Viewer($('arena'), sim, {
+      colors: teams.map(t => t.color),
+      speed: S.speed,
+      assets: {
+        img,
+        iconImg: u => u.isPet && u.petIcon ? img(u.petIcon) : img(icon(u.champ)),
+        summIcon, itemIcon
+      },
+      hooks: { onEnd: onGameEnd, onUlt: callout, onKill: onKill, onFrame: hudTick }
+    });
+    hudT = 0;
   }
 
+  let hudT = 0;
+  function hudTick(sim, dt) {
+    hudT -= dt;
+    if (hudT > 0) return;
+    hudT = 0.1;
+    $('kA').textContent = sim.kills[0];
+    $('kB').textContent = sim.kills[1];
+    const t = Math.floor(sim.t);
+    $('sbClock').textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+    for (const u of sim.units) {
+      if (u.isPet) continue;
+      const el = document.querySelector(`.pc[data-uid="${u.uid}"]`);
+      if (!el) continue;
+      el.classList.toggle('dead', u.dead);
+      const total = Math.max(u.maxHp, u.hp + sim.shieldOf(u));
+      el.querySelector('.hp i').style.width = `${Math.max(0, u.hp) / total * 100}%`;
+      const b = el.querySelector('.hp b');
+      b.style.left = `${Math.max(0, u.hp) / total * 100}%`;
+      b.style.width = `${sim.shieldOf(u) / total * 100}%`;
+      el.querySelector('.kda').textContent = `${u.kills}/${u.deaths}/${u.assists}`;
+      el.querySelector('.cdt').textContent = u.dead && u.reviveAt ? Math.ceil(u.reviveAt - sim.t) : '';
+      const ub = el.querySelector('.ultbtn');
+      ub.style.setProperty('--p', Math.min(100, u.energy));
+      ub.classList.toggle('ready', u.energy >= 100 && !u.dead);
+      el.querySelectorAll('.sm').forEach(s => s.classList.toggle('cd', u.summCd[s.dataset.s] > sim.t));
+    }
+  }
+
+  function callout(u) {
+    const det = S.detail[u.champ.id] || {};
+    const col = (u.ult[1] && u.ult[1].color) || '#f0d48a';
+    const name = u.stolenName && u.ult[0] === 'steal' ? u.stolenName : det.ultName || 'Ulti';
+    const el = document.createElement('div');
+    el.className = `callout ${u.side ? 'r' : 'l'}`;
+    el.style.setProperty('--c', col);
+    el.innerHTML = `<div class="face" style="background-image:url('${splashArt(u.champ)}')"></div><img class="uicon" src="${det.ultIcon || icon(u.champ)}" alt=""><div><div class="cn">${esc(u.champ.name.toLocaleUpperCase('tr'))}</div><div class="un">${esc(name)}</div></div>`;
+    $('fxHost').querySelectorAll(`.callout.${u.side ? 'r' : 'l'}`).forEach(x => x.remove());
+    $('fxHost').appendChild(el);
+    setTimeout(() => el.remove(), 1750);
+  }
+
+  function announce(text, sub, color) {
+    const el = document.createElement('div');
+    el.className = 'announce';
+    el.style.setProperty('--c', color);
+    el.innerHTML = `<b>${esc(text)}</b>${sub ? `<span>${esc(sub)}</span>` : ''}`;
+    $('fxHost').querySelectorAll('.announce').forEach(x => x.remove());
+    $('fxHost').appendChild(el);
+    setTimeout(() => el.remove(), 2300);
+  }
+
+  function onKill(e) {
+    const { killer, victim } = e;
+    const sim = viewer.sim;
+    const col = killer.side ? series.opp.color : S.team.color;
+    const vcol = victim.side ? series.opp.color : S.team.color;
+    const el = document.createElement('div');
+    el.className = 'kf';
+    el.innerHTML = `<img src="${icon(killer.champ)}" style="--c:${col}" alt=""><span class="sw">⚔</span><img src="${icon(victim.champ)}" style="--c:${vcol}" alt="">`;
+    const feed = $('killfeed');
+    feed.prepend(el);
+    while (feed.children.length > 6) feed.lastChild.remove();
+    setTimeout(() => el.remove(), 5000);
+
+    const m = multi[killer.uid] && sim.t - multi[killer.uid].t < 8 ? multi[killer.uid] : { n: 0 };
+    m.n++; m.t = sim.t;
+    multi[killer.uid] = m;
+    const ace = sim.champs(victim.side).every(u => u.dead && !u.reviveAt);
+    const names = ['', '', 'ÇİFTE SKOR!', 'ÜÇLÜ SKOR!', 'DÖRTLÜ SKOR!', 'PENTAKILL!'];
+    if (m.n >= 2) announce(names[Math.min(5, m.n)], killer.champ.name, col);
+    else if (e.first) announce('İLK KAN!', `${killer.champ.name} → ${victim.champ.name}`, col);
+    else if (ace) announce('AS!', killer.side ? series.opp.name : S.team.name, col);
+  }
+
+  $('hudA').addEventListener('click', e => {
+    const b = e.target.closest('.ultbtn');
+    if (b && viewer) viewer.sim.requestUlt(+b.dataset.ult);
+  });
+  document.addEventListener('keydown', e => {
+    if (!$('battle').classList.contains('active') || !viewer) return;
+    if (e.key >= '1' && e.key <= '5') {
+      const u = viewer.sim.units.filter(x => x.side === 0 && !x.isPet)[+e.key - 1];
+      if (u) viewer.sim.requestUlt(u.uid);
+    }
+    if (e.key === ' ') { e.preventDefault(); setSpeed(viewer.speed ? 0 : (S.speed || 1)); }
+  });
+  function setSpeed(s) {
+    if (s) S.speed = s;
+    if (viewer) viewer.speed = s;
+    document.querySelectorAll('#speed button').forEach(x => x.classList.toggle('on', +x.dataset.s === s));
+  }
   $('speed').addEventListener('click', e => {
     const b = e.target.closest('button');
-    if (!b) return;
-    S.speed = +b.dataset.s;
-    document.querySelectorAll('#speed button').forEach(x => x.classList.toggle('on', x === b));
-    if (viewer) viewer.speed = S.speed;
+    if (b) setSpeed(+b.dataset.s);
+  });
+  $('autoUlt').addEventListener('change', e => {
+    S.autoUlt = e.target.checked;
+    if (viewer) viewer.sim.manual[0] = !S.autoUlt;
   });
   $('skip').addEventListener('click', () => viewer && viewer.skip());
 
   function recordStats(sim) {
     for (const u of sim.units) {
-      if (u.side !== 0) continue;
+      if (u.side !== 0 || u.isPet) continue;
       const s = S.tour.stats[u.champ.id];
-      s.k += u.kills; s.d += u.deaths; s.dmg += u.dmg; s.heal += u.heal;
+      s.k += u.kills; s.d += u.deaths; s.a += u.assists; s.dmg += u.dmg; s.heal += u.heal;
     }
   }
 
   function statTable(sim, teams) {
-    const maxDmg = Math.max(...sim.units.map(u => u.dmg), 1);
-    const winners = sim.units.filter(u => u.side === sim.winner);
-    const mvp = winners.reduce((b, u) => (u.dmg + u.kills * 400 + u.heal * 0.5 > b.dmg + b.kills * 400 + b.heal * 0.5 ? u : b), winners[0]);
-    const rows = sim.units.map(u => `
-      <tr>
+    const list = sim.units.filter(u => !u.isPet);
+    const maxDmg = Math.max(...list.map(u => u.dmg), 1);
+    const winners = list.filter(u => u.side === sim.winner);
+    const score = u => u.dmg + u.kills * 600 + u.assists * 250 + u.heal * 0.6 + u.cc * 150;
+    const mvp = winners.reduce((b, u) => (score(u) > score(b) ? u : b), winners[0]);
+    const rows = list.map((u, i) => `
+      <tr class="${i === 5 ? 'sep' : ''}">
         <td><div class="who" style="--c:${teams[u.side].color}"><img src="${icon(u.champ)}" alt=""><span>${esc(u.champ.name)}${u === mvp ? '<span class="mvp-tag">MVP</span>' : ''}</span></div></td>
-        <td class="num">${u.kills} / ${u.deaths}</td>
+        <td class="num">${u.kills}/${u.deaths}/${u.assists}</td>
         <td class="num">${fmt(u.dmg)}</td>
-        <td style="width:30%"><div class="dbar" style="--c:${teams[u.side].color};width:${(u.dmg / maxDmg) * 100}%"></div></td>
+        <td style="width:24%"><div class="dbar" style="--c:${teams[u.side].color};width:${u.dmg / maxDmg * 100}%"></div></td>
+        <td class="num">${fmt(u.heal)}</td>
+        <td class="num">${u.cc.toFixed(1)} sn</td>
       </tr>`).join('');
-    return `<table class="stat-table"><thead><tr><th>Şampiyon</th><th>Ö / Ö</th><th>Hasar</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    return `<table class="stat-table"><thead><tr><th>Şampiyon</th><th>S/Ö/A</th><th>Hasar</th><th></th><th>İyileştirme</th><th>Kontrol</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
-  function overlay(html) {
-    $('overlayHost').innerHTML = `<div class="overlay"><div class="modal">${html}</div></div>`;
-  }
-  function closeOverlay() { $('overlayHost').innerHTML = ''; }
+  const overlay = html => { $('overlayHost').innerHTML = `<div class="overlay"><div class="modal">${html}</div></div>`; };
+  const closeOverlay = () => { $('overlayHost').innerHTML = ''; };
 
   function onGameEnd(sim) {
     recordStats(sim);
@@ -565,13 +779,9 @@
     } else {
       const seriesWon = series.wins[0] > series.wins[1];
       const isFinal = S.tour.round === 2;
-      if (seriesWon && isFinal) title = '<span class="res-win">ŞAMPİYONSUN! 🏆</span>';
-      else if (seriesWon) title = `<span class="res-win">${ROUND_NAMES[S.tour.round]} geçildi!</span>`;
-      else title = '<span class="res-lose">Elendin</span>';
-      sub = series.bo === 1
-        ? `${esc(teams[sim.winner].name)} ${sim.kills[sim.winner]}-${sim.kills[1 - sim.winner]} skorla kazandı.`
-        : `Seri sonucu: ${esc(S.team.tag)} ${series.wins[0]} - ${series.wins[1]} ${esc(series.opp.tag)}`;
-      btn = seriesWon && isFinal ? '<button class="btn" id="seriesDone">Kupayı al →</button>' : '<button class="btn" id="seriesDone">Fikstüre dön →</button>';
+      title = seriesWon && isFinal ? '<span class="res-win">ŞAMPİYONSUN! 🏆</span>' : seriesWon ? `<span class="res-win">${ROUND_NAMES[S.tour.round]} geçildi!</span>` : '<span class="res-lose">Elendin</span>';
+      sub = series.bo === 1 ? `${esc(teams[sim.winner].name)} ${sim.kills[sim.winner]}-${sim.kills[1 - sim.winner]} skorla kazandı.` : `Seri sonucu: ${esc(S.team.tag)} ${series.wins[0]} - ${series.wins[1]} ${esc(series.opp.tag)}`;
+      btn = `<button class="btn" id="seriesDone">${seriesWon && isFinal ? 'Kupayı al →' : 'Fikstüre dön →'}</button>`;
     }
     overlay(`
       <div class="eyebrow">${ROUND_NAMES[S.tour.round]}${series.bo > 1 ? ` · Maç ${series.game}` : ''} · ${Math.floor(sim.t)} sn</div>
@@ -586,10 +796,8 @@
     if (e.target.closest('#seriesDone')) {
       closeOverlay();
       if (viewer) { viewer.stop(); viewer = null; }
-      const T = S.tour;
-      const m = series.m;
-      const userIsA = m.a === S.team;
-      m.wins = userIsA ? [series.wins[0], series.wins[1]] : [series.wins[1], series.wins[0]];
+      const T = S.tour, m = series.m;
+      m.wins = m.a === S.team ? [series.wins[0], series.wins[1]] : [series.wins[1], series.wins[0]];
       const won = series.wins[0] > series.wins[1];
       m.winner = won ? S.team : series.opp;
       T.path.push({ round: T.round, opp: series.opp, score: series.wins.slice(), won });
@@ -600,346 +808,26 @@
     }
   });
 
-  // Arena çizimi
-  function makeBackground(colors) {
-    const c = document.createElement('canvas');
-    c.width = M.W; c.height = M.H;
-    const g = c.getContext('2d');
-    const bg = g.createLinearGradient(0, 0, 0, M.H);
-    bg.addColorStop(0, '#0f1a1c');
-    bg.addColorStop(1, '#0a1113');
-    g.fillStyle = bg;
-    g.fillRect(0, 0, M.W, M.H);
-    // Takım bölgeleri
-    [[0, colors[0]], [M.W, colors[1]]].forEach(([x, col]) => {
-      const r = g.createRadialGradient(x, M.H / 2, 20, x, M.H / 2, 420);
-      r.addColorStop(0, col + '30');
-      r.addColorStop(1, col + '00');
-      g.fillStyle = r;
-      g.fillRect(0, 0, M.W, M.H);
-    });
-    // Nehir
-    g.save();
-    g.translate(M.W / 2, M.H / 2);
-    g.rotate(-0.35);
-    const rv = g.createLinearGradient(-60, 0, 60, 0);
-    rv.addColorStop(0, 'rgba(60,140,200,0)');
-    rv.addColorStop(0.5, 'rgba(60,140,200,0.14)');
-    rv.addColorStop(1, 'rgba(60,140,200,0)');
-    g.fillStyle = rv;
-    g.fillRect(-60, -500, 120, 1000);
-    g.restore();
-    // Izgara
-    g.strokeStyle = 'rgba(255,255,255,0.035)';
-    g.lineWidth = 1;
-    for (let x = 0; x <= M.W; x += 40) { g.beginPath(); g.moveTo(x + 0.5, 0); g.lineTo(x + 0.5, M.H); g.stroke(); }
-    for (let y = 0; y <= M.H; y += 40) { g.beginPath(); g.moveTo(0, y + 0.5); g.lineTo(M.W, y + 0.5); g.stroke(); }
-    // Çalılar
-    g.fillStyle = 'rgba(40,90,60,0.25)';
-    [[330, 70], [670, 490], [420, 500], [580, 60], [140, 470], [860, 90]].forEach(([x, y]) => {
-      for (let i = 0; i < 5; i++) { g.beginPath(); g.arc(x + i * 14 - 28, y + Math.sin(i) * 6, 16, 0, TAU); g.fill(); }
-    });
-    return c;
-  }
-
-  const RING_COLORS = { magic: '#b085ff', phys: '#f5a524', stun: '#facc15', heal: '#34d399', buff: '#ef4444', shield: '#e2e8f0', sun: '#fb923c' };
-
-  class Viewer {
-    constructor(sim, teams, onEnd) {
-      this.sim = sim;
-      this.teams = teams;
-      this.colors = teams.map(t => t.color);
-      this.onEnd = onEnd;
-      this.speed = S.speed;
-      this.canvas = $('arena');
-      this.ctx = this.canvas.getContext('2d');
-      this.bg = makeBackground(this.colors);
-      this.floats = []; this.rings = []; this.slashes = []; this.dashes = [];
-      this.acc = 0; this.doneFor = 0; this.ended = false; this.running = true; this.hudT = 0;
-      this.last = performance.now();
-      sim.units.forEach(u => img(icon(u.champ)));
-      this.resize();
-      this.onResize = () => this.resize();
-      window.addEventListener('resize', this.onResize);
-      requestAnimationFrame(this.frame);
-    }
-
-    resize() {
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const w = this.canvas.clientWidth || M.W;
-      this.canvas.width = Math.round(w * dpr);
-      this.canvas.height = Math.round(w * M.H / M.W * dpr);
-    }
-
-    stop() {
-      this.running = false;
-      window.removeEventListener('resize', this.onResize);
-    }
-
-    skip() {
-      if (this.ended) return;
-      while (!this.sim.done) { this.sim.step(1 / 30); this.sim.events.length = 0; }
-      this.ended = true;
-      this.draw();
-      this.hud(true);
-      this.onEnd(this.sim);
-    }
-
-    frame = ts => {
-      if (!this.running) return;
-      const dt = Math.min(0.05, (ts - this.last) / 1000);
-      this.last = ts;
-      if (!this.sim.done) {
-        this.acc += dt * this.speed;
-        while (this.acc >= STEP && !this.sim.done) {
-          this.sim.step(STEP);
-          this.acc -= STEP;
-          this.consume();
-        }
-      } else if (!this.ended) {
-        this.doneFor += dt;
-        if (this.doneFor > 1.4) { this.ended = true; this.onEnd(this.sim); }
-      }
-      this.tickFx(dt * Math.max(1, this.speed * 0.6));
-      this.draw();
-      this.hudT -= dt;
-      if (this.hudT <= 0) { this.hudT = 0.1; this.hud(); }
-      requestAnimationFrame(this.frame);
-    };
-
-    float(x, y, text, color, size = 14) {
-      this.floats.push({ x: x + (Math.random() - 0.5) * 16, y: y - 26, text, color, size, life: 0.9, max: 0.9 });
-    }
-
-    consume() {
-      for (const e of this.sim.events) {
-        switch (e.t) {
-          case 'hit':
-            if (e.quiet) break;
-            if (e.type === 'magic') this.float(e.x, e.y, fmt(e.amount), '#c9a7ff', e.crit ? 18 : 14);
-            else if (e.type === 'true') this.float(e.x, e.y, fmt(e.amount), '#ffffff', 15);
-            else this.float(e.x, e.y, fmt(e.amount) + (e.crit ? '!' : ''), e.crit ? '#ffb020' : '#ffe2b0', e.crit ? 19 : 13);
-            break;
-          case 'heal': this.float(e.x, e.y, '+' + fmt(e.amount), '#4ade80', 14); break;
-          case 'ring': this.rings.push({ ...e, life: e.big ? 0.7 : 0.45, max: e.big ? 0.7 : 0.45 }); break;
-          case 'slash': this.slashes.push({ x1: e.u.x, y1: e.u.y, x2: e.tg.x, y2: e.tg.y, color: this.colors[e.u.side], crit: e.crit, life: 0.16, max: 0.16 }); break;
-          case 'dash': this.dashes.push({ x1: e.fromX, y1: e.fromY, x2: e.u.x, y2: e.u.y, color: this.colors[e.u.side], life: 0.4, max: 0.4 }); break;
-          case 'block': this.float(e.u.x, e.u.y, 'ENGELLENDİ', '#cbd5e1', 12); break;
-          case 'stasis': this.float(e.u.x, e.u.y, 'DOKUNULMAZ', '#f3d58a', 13); break;
-          case 'revive':
-            this.float(e.u.x, e.u.y, 'DİRİLDİ', '#f3d58a', 14);
-            this.rings.push({ x: e.u.x, y: e.u.y, r: 60, color: 'shield', life: 0.6, max: 0.6 });
-            break;
-          case 'kill': this.killFeed(e.killer, e.victim); break;
-          case 'ult': this.ultBanner(e.u); break;
-        }
-      }
-      this.sim.events.length = 0;
-    }
-
-    killFeed(k, v) {
-      const el = document.createElement('div');
-      el.className = 'kf';
-      el.innerHTML = `<img src="${icon(k.champ)}" style="--c:${this.colors[k.side]}" alt=""><span class="sw">⚔</span><img src="${icon(v.champ)}" style="--c:${this.colors[v.side]}" alt="">`;
-      const feed = $('killfeed');
-      feed.prepend(el);
-      while (feed.children.length > 5) feed.lastChild.remove();
-      setTimeout(() => el.remove(), 4500);
-    }
-
-    ultBanner(u) {
-      $('ultHost').innerHTML = `<div class="ult-banner" style="--c:${this.colors[u.side]}"><img src="${icon(u.champ)}" alt="">${esc(u.champ.name.toLocaleUpperCase('tr'))} <span>ULTİ!</span></div>`;
-    }
-
-    tickFx(dt) {
-      for (const list of [this.floats, this.rings, this.slashes, this.dashes]) {
-        for (const f of list) f.life -= dt;
-      }
-      this.floats = this.floats.filter(f => f.life > 0);
-      this.rings = this.rings.filter(f => f.life > 0);
-      this.slashes = this.slashes.filter(f => f.life > 0);
-      this.dashes = this.dashes.filter(f => f.life > 0);
-    }
-
-    draw() {
-      const c = this.ctx, sim = this.sim;
-      c.setTransform(this.canvas.width / M.W, 0, 0, this.canvas.height / M.H, 0, 0);
-      c.drawImage(this.bg, 0, 0);
-
-      for (const d of this.dashes) {
-        const a = d.life / d.max;
-        c.strokeStyle = d.color;
-        c.globalAlpha = a * 0.7;
-        c.lineWidth = 10 * a;
-        c.lineCap = 'round';
-        c.beginPath(); c.moveTo(d.x1, d.y1); c.lineTo(d.x2, d.y2); c.stroke();
-      }
-      c.globalAlpha = 1;
-
-      for (const r of this.rings) {
-        const p = 1 - r.life / r.max;
-        c.globalAlpha = (1 - p) * 0.9;
-        c.strokeStyle = RING_COLORS[r.color] || '#fff';
-        c.lineWidth = r.big ? 4 : 2.5;
-        c.beginPath(); c.arc(r.x, r.y, r.r * (0.4 + 0.6 * p), 0, TAU); c.stroke();
-        c.globalAlpha = (1 - p) * 0.15;
-        c.fillStyle = RING_COLORS[r.color] || '#fff';
-        c.fill();
-      }
-      c.globalAlpha = 1;
-
-      const units = sim.units.slice().sort((a, b) => (a.dead - b.dead) * -1 || a.y - b.y);
-      for (const u of units) this.drawUnit(u);
-
-      for (const p of sim.projs) {
-        const dx = p.tg.x - p.x, dy = p.tg.y - p.y, d = Math.hypot(dx, dy) || 1;
-        const col = p.kind === 'spell' ? (p.magic ? '#b085ff' : '#f5a524') : this.colors[p.side];
-        const len = p.kind === 'spell' ? 22 : 12;
-        c.strokeStyle = col;
-        c.lineWidth = p.kind === 'spell' ? 5 : 2.5;
-        c.lineCap = 'round';
-        c.globalAlpha = 0.5;
-        c.beginPath(); c.moveTo(p.x - dx / d * len, p.y - dy / d * len); c.lineTo(p.x, p.y); c.stroke();
-        c.globalAlpha = 1;
-        c.fillStyle = p.kind === 'spell' ? '#fff' : col;
-        c.beginPath(); c.arc(p.x, p.y, p.kind === 'spell' ? 5 : 3, 0, TAU); c.fill();
-      }
-
-      for (const s of this.slashes) {
-        const a = s.life / s.max;
-        const ang = Math.atan2(s.y2 - s.y1, s.x2 - s.x1);
-        c.strokeStyle = s.crit ? '#ffb020' : '#fff';
-        c.globalAlpha = a;
-        c.lineWidth = s.crit ? 4 : 2.5;
-        c.beginPath(); c.arc(s.x2, s.y2, 18, ang + Math.PI - 0.9, ang + Math.PI + 0.9); c.stroke();
-      }
-      c.globalAlpha = 1;
-
-      c.textAlign = 'center';
-      c.textBaseline = 'middle';
-      for (const f of this.floats) {
-        const p = 1 - f.life / f.max;
-        c.globalAlpha = Math.min(1, f.life / f.max * 2);
-        c.font = `700 ${f.size}px "Chakra Petch", Inter, sans-serif`;
-        c.lineWidth = 3;
-        c.strokeStyle = 'rgba(0,0,0,0.75)';
-        c.strokeText(f.text, f.x, f.y - p * 28);
-        c.fillStyle = f.color;
-        c.fillText(f.text, f.x, f.y - p * 28);
-      }
-      c.globalAlpha = 1;
-    }
-
-    drawUnit(u) {
-      const c = this.ctx, sim = this.sim;
-      const col = this.colors[u.side];
-      const pic = img(icon(u.champ));
-      c.save();
-      c.globalAlpha = u.dead ? 0.3 : 1;
-      c.fillStyle = 'rgba(0,0,0,0.4)';
-      c.beginPath(); c.ellipse(u.x, u.y + u.r - 1, u.r * 0.95, 6, 0, 0, TAU); c.fill();
-
-      c.save();
-      c.beginPath(); c.arc(u.x, u.y, u.r, 0, TAU); c.clip();
-      if (pic.complete && pic.naturalWidth) {
-        if (u.dead) c.filter = 'grayscale(1)';
-        c.drawImage(pic, u.x - u.r, u.y - u.r, u.r * 2, u.r * 2);
-        c.filter = 'none';
-      } else {
-        c.fillStyle = col; c.fill();
-      }
-      if (u.stasis > 0) { c.fillStyle = 'rgba(243,213,138,0.55)'; c.fillRect(u.x - u.r, u.y - u.r, u.r * 2, u.r * 2); }
-      c.restore();
-
-      c.lineWidth = 3;
-      c.strokeStyle = u.stasis > 0 ? '#f3d58a' : col;
-      c.beginPath(); c.arc(u.x, u.y, u.r, 0, TAU); c.stroke();
-
-      if (!u.dead) {
-        if (u.shield > 1) {
-          c.strokeStyle = 'rgba(226,232,240,0.85)';
-          c.lineWidth = 2;
-          c.beginPath(); c.arc(u.x, u.y, u.r + 4, 0, TAU); c.stroke();
-        }
-        if (sim.t < u.buffUntil) {
-          c.strokeStyle = '#ef4444';
-          c.lineWidth = 2;
-          c.setLineDash([4, 4]);
-          c.lineDashOffset = -sim.t * 30;
-          c.beginPath(); c.arc(u.x, u.y, u.r + 7, 0, TAU); c.stroke();
-          c.setLineDash([]);
-        }
-        if (u.stun > 0) {
-          c.fillStyle = '#facc15';
-          for (let i = 0; i < 3; i++) {
-            const a = sim.t * 6 + i * TAU / 3;
-            c.beginPath(); c.arc(u.x + Math.cos(a) * 12, u.y - u.r - 22 + Math.sin(a) * 4, 2.5, 0, TAU); c.fill();
-          }
-        }
-        const bw = 50, bh = 6, bx = u.x - bw / 2, by = u.y - u.r - 14;
-        c.fillStyle = 'rgba(0,0,0,0.7)';
-        c.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
-        const hpw = bw * Math.max(0, u.hp) / u.maxHp;
-        c.fillStyle = col;
-        c.fillRect(bx, by, hpw, bh);
-        if (u.shield > 1) {
-          c.fillStyle = '#e2e8f0';
-          c.fillRect(bx + hpw, by, Math.min(bw - hpw, bw * u.shield / u.maxHp), bh);
-        }
-        c.fillStyle = u.energy >= 95 ? '#f3d58a' : 'rgba(212,173,85,0.7)';
-        c.fillRect(bx, by + bh + 1, bw * Math.min(1, u.energy / 100), 2);
-      }
-      c.restore();
-    }
-
-    hud(force) {
-      const sim = this.sim;
-      $('kA').textContent = sim.kills[0];
-      $('kB').textContent = sim.kills[1];
-      const t = Math.floor(sim.t);
-      $('sbClock').textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
-      [0, 1].forEach(side => {
-        const els = $(side ? 'rostB' : 'rostA').children;
-        sim.units.filter(u => u.side === side).forEach((u, i) => {
-          const el = els[i];
-          if (!el) return;
-          el.classList.toggle('dead', u.dead);
-          el.querySelector('.hp i').style.width = `${Math.max(0, u.hp / u.maxHp) * 100}%`;
-          el.querySelector('.kd').textContent = `${u.kills}/${u.deaths} · ${fmt(u.dmg)}`;
-        });
-      });
-    }
-  }
-
-  // ---------- 6. son ekran ----------
+  // ---------- 6. son ----------
   function renderEnd() {
     const T = S.tour;
     const won = T.champion === S.team;
     const lastRound = T.path.length ? T.path[T.path.length - 1].round : 0;
-    const stageText = ['çeyrek finalde', 'yarı finalde', 'finalde'][lastRound];
+    const stageText = ['Çeyrek finalde', 'Yarı finalde', 'Finalde'][lastRound];
     const entries = S.team.roster.map(r => ({ r, s: T.stats[r.champ.id] }));
-    const score = e => e.s.dmg + e.s.k * 400 + e.s.heal * 0.5;
+    const score = e => e.s.dmg + e.s.k * 600 + e.s.a * 250 + e.s.heal * 0.6;
     const mvp = entries.reduce((b, e) => (score(e) > score(b) ? e : b), entries[0]);
-
     const hero = won
       ? `<div class="cup">🏆</div><div class="eyebrow">Mayhem Ligi şampiyonu</div><h1>${esc(S.team.name)}</h1><p>Bütün rakipleri devirdin. Kupa senin.</p>`
-      : `<div class="cup">${lastRound === 2 ? '🥈' : '⚔️'}</div><div class="eyebrow">Turnuva bitti</div><h1>${esc(S.team.name)}</h1><p>${stageText.charAt(0).toLocaleUpperCase('tr') + stageText.slice(1)} elendin. Şampiyon: <b style="color:var(--text)">${esc(T.champion.name)}</b></p>`;
-
-    const path = T.path.map(p => `
-      <div class="p">
-        <span class="r">${ROUND_NAMES[p.round]}</span>
-        ${teamBadge(p.opp, true)}<span>${esc(p.opp.name)}</span>
-        <span class="sc" style="color:${p.won ? 'var(--win)' : 'var(--lose)'}">${p.score[0]}-${p.score[1]}</span>
-      </div>`).join('');
-
+      : `<div class="cup">${lastRound === 2 ? '🥈' : '⚔️'}</div><div class="eyebrow">Turnuva bitti</div><h1>${esc(S.team.name)}</h1><p>${stageText} elendin. Şampiyon: <b style="color:var(--text)">${esc(T.champion.name)}</b></p>`;
+    const path = T.path.map(p => `<div class="p"><span class="r">${ROUND_NAMES[p.round]}</span>${teamBadge(p.opp, true)}<span>${esc(p.opp.name)}</span><span class="sc" style="color:${p.won ? 'var(--win)' : 'var(--lose)'}">${p.score[0]}-${p.score[1]}</span></div>`).join('');
     const rows = entries.map(e => `
       <tr>
         <td><div class="who" style="--c:${S.team.color}"><img src="${icon(e.r.champ)}" alt=""><span>${esc(e.r.champ.name)}${e === mvp ? '<span class="mvp-tag">MVP</span>' : ''}</span></div></td>
-        <td class="num">${e.s.k} / ${e.s.d}</td>
+        <td class="num">${e.s.k}/${e.s.d}/${e.s.a}</td>
         <td class="num">${fmt(e.s.dmg)}</td>
-        <td><div style="display:flex;gap:3px">${e.r.items.map(id => `<img src="${itemIcon(id)}" alt="" title="${esc(M.ITEM_BY_ID[id].name)}" style="width:22px;height:22px;border-radius:4px">`).join('')}</div></td>
+        <td><div style="display:flex;gap:2px">${[e.r.boots, ...e.r.items].map(id => `<img src="${itemIcon(id)}" alt="" title="${esc(M.ITEMS[id].name)}" style="width:22px;height:22px;border-radius:3px">`).join('')}</div></td>
       </tr>`).join('');
-
     $('endWrap').innerHTML = `
       <div class="end-hero">${hero}</div>
       <div class="end-grid">
@@ -949,7 +837,7 @@
             <span class="chip gold">Turnuva MVP'si</span>
             <h3>${esc(mvp.r.champ.name)}</h3>
             <div class="stats">
-              <div class="stat"><small>Skor / Ölüm</small><b>${mvp.s.k} / ${mvp.s.d}</b></div>
+              <div class="stat"><small>S / Ö / A</small><b>${mvp.s.k} / ${mvp.s.d} / ${mvp.s.a}</b></div>
               <div class="stat"><small>Toplam hasar</small><b>${fmt(mvp.s.dmg)}</b></div>
             </div>
           </div>
@@ -958,7 +846,7 @@
           <div class="cat-title" style="margin-top:0">Turnuva yolu</div>
           <div class="path">${path}</div>
           <div class="cat-title">Kadro istatistikleri</div>
-          <table class="stat-table" style="margin-top:0"><thead><tr><th>Şampiyon</th><th>Ö / Ö</th><th>Hasar</th><th>Itemler</th></tr></thead><tbody>${rows}</tbody></table>
+          <table class="stat-table" style="margin-top:0"><thead><tr><th>Şampiyon</th><th>S/Ö/A</th><th>Hasar</th><th>Build</th></tr></thead><tbody>${rows}</tbody></table>
           <div class="center-actions" style="justify-content:flex-start">
             <button class="btn" id="againSame">Aynı kadroyla tekrar</button>
             <button class="btn ghost" id="newTeam">Yeni takım kur</button>
@@ -972,11 +860,8 @@
   function confetti() {
     const box = document.createElement('div');
     box.className = 'confetti';
-    const cols = [S.team.color, '#f3d58a', '#ffffff', '#d4ad55'];
-    box.innerHTML = Array.from({ length: 90 }, () => {
-      const d = 2.5 + Math.random() * 3;
-      return `<i style="left:${Math.random() * 100}%;background:${cols[Math.floor(Math.random() * cols.length)]};animation-duration:${d}s;animation-delay:${Math.random() * 1.5}s"></i>`;
-    }).join('');
+    const cols = [S.team.color, '#f0d48a', '#ffffff', '#c8a14b'];
+    box.innerHTML = Array.from({ length: 90 }, () => `<i style="left:${Math.random() * 100}%;background:${cols[Math.floor(Math.random() * cols.length)]};animation-duration:${2.5 + Math.random() * 3}s;animation-delay:${Math.random() * 1.5}s"></i>`).join('');
     document.body.appendChild(box);
     setTimeout(() => box.remove(), 7000);
   }
