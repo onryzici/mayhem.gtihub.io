@@ -307,7 +307,14 @@
     .hud-side { background: #0d131c; padding: 10px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
     .pc { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 8px; align-items: center; min-width: 0; }
     .pc .por { position: relative; width: 48px; height: 48px; }
-    .pc .por img { width: 48px; height: 48px; border-radius: 4px; border: 2px solid var(--c); }
+    .pc .por img { width: 48px; height: 48px; border-radius: 4px; border: 2px solid var(--c); object-fit: cover; }
+    .skin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
+    .skin { position: relative; padding: 0; border: 2px solid rgba(255,255,255,.08); border-radius: 8px; overflow: hidden; background: #0b0f17; cursor: pointer; text-align: left; color: inherit; transition: transform .15s, border-color .15s; }
+    .skin:hover { transform: translateY(-2px); border-color: rgba(240,212,138,.45); }
+    .skin.on { border-color: var(--gold); }
+    .skin img { display: block; width: 100%; aspect-ratio: 308 / 420; object-fit: cover; object-position: 50% 8%; }
+    .skin b { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 8px 7px; font-size: 11.5px; line-height: 1.25; background: linear-gradient(transparent, rgba(0,0,0,.9)); }
+    .skin.on b::before { content: '✓ '; color: var(--gold); }
     .pc.dead .por img { filter: grayscale(1) brightness(0.5); }
     .pc .por .lv { position: absolute; bottom: -4px; left: -4px; width: 18px; height: 18px; border-radius: 50%; background: #0b0f17; border: 1px solid var(--gold); font-family: var(--head); font-size: 9px; display: grid; place-items: center; color: var(--gold-2); }
     .pc .por .cdt { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--head); font-weight: 700; font-size: 18px; color: #fff; text-shadow: 0 1px 2px #000; }
@@ -525,6 +532,7 @@
             <button class="tab on" data-tab="items">Itemler</button>
             <button class="tab" data-tab="runes">Rünler</button>
             <button class="tab" data-tab="summs">Büyüler</button>
+            <button class="tab" data-tab="skins">Kostüm</button>
           </div>
           <div id="loBody"></div>
         </div>
@@ -565,7 +573,7 @@
           <div class="speed" id="speed"><button data-s="0">❚❚</button><button data-s="1" class="on">1x</button><button data-s="2">2x</button><button data-s="4">4x</button><button data-s="8">8x</button></div>
           <label class="toggle"><input type="checkbox" id="autoUlt" checked> Otomatik ulti</label>
         </div>
-        <div class="hint">Düşmana tıkla: takımın ona odaklansın · Ulti hazır olunca kartındaki ikona ya da <kbd>1</kbd>–<kbd>5</kbd>'e bas · 5:00'da skoru yüksek olan kazanır</div>
+        <div class="hint">Düşmana tıkla: takımın ona odaklansın · Ulti hazır olunca kartındaki ikona ya da <kbd>1</kbd>–<kbd>5</kbd>'e bas · Nexus'u yıkan ya da 5:00'da skorda önde olan kazanır</div>
         <button class="btn ghost small" id="skip">Maçı atla ⏭</button>
       </div>
     </div>

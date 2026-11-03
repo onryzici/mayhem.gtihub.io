@@ -29,8 +29,11 @@
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmt = n => Math.round(n).toLocaleString('tr-TR');
   const icon = c => `${DD}/cdn/${S.v}/img/champion/${c.image.full}`;
-  const loadingArt = c => `${DD}/cdn/img/champion/loading/${c.id}_0.jpg`;
-  const splashArt = c => `${DD}/cdn/img/champion/splash/${c.id}_0.jpg`;
+  const loadingArt = (c, skin = 0) => `${DD}/cdn/img/champion/loading/${c.id}_${skin || 0}.jpg`;
+  const splashArt = (c, skin = 0) => `${DD}/cdn/img/champion/splash/${c.id}_${skin || 0}.jpg`;
+  // Kostümlü portre: varsayılan kostümde kare simge, diğerlerinde yükleme görselinden yüz kırpılır
+  const portrait = (c, skin) => skin ? loadingArt(c, skin) : icon(c);
+  const porStyle = skin => skin ? ' style="object-fit:cover;object-position:50% 14%" onerror="this.onerror=null;this.style.objectPosition=\'50% 50%\';this.src=this.dataset.fb"' : '';
   const itemIcon = id => `${DD}/cdn/${S.v}/img/item/${id}.png`;
   const summIcon = id => `${DD}/cdn/${S.v}/img/spell/${id}.png`;
   const runeIcon = path => `${DD}/cdn/img/${path}`;
@@ -104,9 +107,10 @@
     try {
       const d = (await getJSON(`${DD}/cdn/${S.v}/data/tr_TR/champion/${id}.json`)).data[id];
       const r = d.spells[3];
-      S.detail[id] = { ultName: r.name, ultIcon: `${DD}/cdn/${S.v}/img/spell/${r.image.full}` };
+      const skins = (d.skins || []).filter(s => s.parentSkin === undefined).map(s => ({ num: s.num, name: s.num === 0 ? 'Klasik' : s.name, chromas: !!s.chromas }));
+      S.detail[id] = { ultName: r.name, ultIcon: `${DD}/cdn/${S.v}/img/spell/${r.image.full}`, skins: skins.length ? skins : [{ num: 0, name: 'Klasik' }] };
     } catch (e) {
-      S.detail[id] = { ultName: 'Ulti', ultIcon: icon(S.champs[id]) };
+      S.detail[id] = { ultName: 'Ulti', ultIcon: icon(S.champs[id]), skins: [{ num: 0, name: 'Klasik' }] };
     }
     return S.detail[id];
   }
@@ -183,7 +187,7 @@
       const list = r ? [r.boots, ...r.items].filter(Boolean) : [];
       const dots = list.length ? `<div class="items-dots">${list.map(id => `<img src="${itemIcon(id)}" alt="">`).join('')}</div>` : '';
       return `<div class="slot${i === activeIdx ? ' on' : ''}" data-i="${i}">
-        <div class="ico">${r ? `<img src="${icon(r.champ)}" alt="">` : ''}</div>
+        <div class="ico">${r ? `<img src="${portrait(r.champ, r.skin)}" data-fb="${icon(r.champ)}"${porStyle(r.skin)} alt="">` : ''}</div>
         <div class="txt"><small>${D.ROLE_SHORT[role]}</small><b>${r ? esc(r.champ.name) : '—'}</b>${dots}</div>
       </div>`;
     }).join('');
@@ -308,9 +312,9 @@
     const fi = fitInfo(r);
     const gold = [r.boots, ...r.items].filter(Boolean).reduce((t, id) => t + (M.ITEMS[id] ? M.ITEMS[id].gold : 0), 0);
     $('champPanel').innerHTML = `
-      <div class="art"><img src="${splashArt(c)}" alt=""></div>
+      <div class="art"><img src="${splashArt(c, r.skin)}" alt=""></div>
       <div class="body">
-        <div class="eyebrow">${D.ROLE_NAMES[r.role]}</div>
+        <div class="eyebrow">${D.ROLE_NAMES[r.role]}${r.skin && det ? ` · ${esc((det.skins.find(s => s.num === r.skin) || {}).name || '')}` : ''}</div>
         <h3>${esc(c.name)}</h3>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><span class="chip gold">${D.CLASS_NAMES[cls]}</span><span class="chip">Seviye ${M.LEVEL}</span><span class="chip">${fmt(gold)} altın</span></div>
         <div class="desc">${D.CLASS_DESC[cls]}</div>
@@ -334,6 +338,7 @@
 
     if (S.loTab === 'items') renderItemsTab(r);
     else if (S.loTab === 'runes') renderRunesTab(r);
+    else if (S.loTab === 'skins') renderSkinTab(r, det);
     else renderSummTab(r);
 
     const allDone = S.team.roster.every(complete);
@@ -406,6 +411,15 @@
     $('loBody').innerHTML = html;
   }
 
+  function renderSkinTab(r, det) {
+    if (!det) { $('loBody').innerHTML = '<div class="muted">Kostümler yükleniyor…</div>'; return; }
+    const cur = r.skin || 0;
+    $('loBody').innerHTML = `<div class="cat-title" style="margin-top:0">${esc(r.champ.name)} · ${det.skins.length} kostüm</div>
+      <div class="skin-grid">${det.skins.map(s => `<button type="button" class="skin${s.num === cur ? ' on' : ''}" data-skin="${s.num}">
+        <img src="${loadingArt(r.champ, s.num)}" alt="" loading="lazy"><b>${esc(s.name)}</b></button>`).join('')}</div>
+      <div class="cat-title"><button type="button" class="btn ghost small" data-skin="rand">🎲 Takıma rastgele kostüm</button></div>`;
+  }
+
   function renderSummTab(r) {
     const b = D.buildFor(r.champ);
     let html = `<div class="cat-title" style="margin-top:0">2 sihirdar büyüsü seç</div><div class="summ-grid">`;
@@ -428,6 +442,16 @@
     const ks = e.target.closest('[data-ks]');
     const sec = e.target.closest('[data-sec]');
     const sm = e.target.closest('[data-summ]');
+    const sk = e.target.closest('[data-skin]');
+    if (sk) {
+      if (sk.dataset.skin === 'rand') {
+        Promise.all(S.team.roster.map(x => detail(x.champ.id))).then(ds => { S.team.roster.forEach((x, i) => { const l = ds[i].skins; x.skin = l[Math.floor(Math.random() * l.length)].num; }); renderLoadout(); });
+        return;
+      }
+      r.skin = +sk.dataset.skin;
+      renderLoadout();
+      return;
+    }
     if (it && !it.disabled) {
       const id = +it.dataset.id;
       if (M.ITEMS[id].cat === 'boots') r.boots = r.boots === id ? null : id;
@@ -515,7 +539,7 @@
     name: t.name, color: t.color,
     roster: t.roster.map(r => {
       const det = S.detail[r.champ.id] || {};
-      return { champ: r.champ, role: r.role, items: [r.boots, ...r.items].filter(Boolean), keystone: r.keystone, secondary: r.secondary, summs: r.summs, ultName: det.ultName || 'Ulti', ultIcon: det.ultIcon };
+      return { champ: r.champ, role: r.role, skin: r.skin || 0, items: [r.boots, ...r.items].filter(Boolean), keystone: r.keystone, secondary: r.secondary, summs: r.summs, ultName: det.ultName || 'Ulti', ultIcon: det.ultIcon };
     })
   });
 
@@ -583,6 +607,8 @@
     if (e.target.closest('#playMatch')) {
       e.target.closest('#playMatch').disabled = true;
       await Promise.all(S.tour.teams.flatMap(t => t.roster.map(r => detail(r.champ.id))));
+      // rakip takımlar kostüm giyer
+      for (const t of S.tour.teams) if (t !== S.team) for (const r of t.roster) if (r.skin === undefined) { const l = S.detail[r.champ.id].skins; r.skin = Math.random() < 0.8 ? l[Math.floor(Math.random() * l.length)].num : 0; }
       startSeries();
     }
     if (e.target.closest('#editLoadout')) {
@@ -623,7 +649,7 @@
       const ks = S.keystones[r.keystone];
       const det = S.detail[r.champ.id] || {};
       return `<div class="ls-card" style="--c:${t.color};animation-delay:${(n++) * 0.07}s">
-        <div class="ls-art" style="background-image:url('${loadingArt(r.champ)}')"></div>
+        <div class="ls-art" style="background-image:url('${loadingArt(r.champ, r.skin)}')"></div>
         <div class="ls-meta"><b>${esc(r.champ.name)}</b><small>${D.ROLE_NAMES[r.role]}</small>
           <div class="ls-icons">${r.summs.map(x => `<img src="${summIcon(x)}" alt="">`).join('')}${ks ? `<img class="rn" src="${runeIcon(ks.icon)}" alt="">` : ''}${det.ultIcon ? `<img src="${det.ultIcon}" alt="">` : ''}</div>
         </div>
@@ -642,7 +668,7 @@
     const det = S.detail[u.champ.id] || {};
     const col = side ? series.opp.color : S.team.color;
     return `<div class="pc" style="--c:${col}" data-uid="${u.uid}">
-      <div class="por"><img src="${icon(u.champ)}" alt=""><span class="lv">${M.LEVEL}</span><span class="cdt"></span></div>
+      <div class="por"><img src="${portrait(u.champ, u.skin)}" data-fb="${icon(u.champ)}"${porStyle(u.skin)} alt=""><span class="lv">${M.LEVEL}</span><span class="cdt"></span></div>
       <div style="min-width:0">
         <div class="nm"><span>${esc(u.champ.name)}</span><em class="kda">0/0/0</em></div>
         <div class="hp"><i></i><b></b></div>
@@ -672,7 +698,11 @@
       speed: S.speed,
       assets: {
         img,
-        iconImg: u => u.isPet && u.petIcon ? img(u.petIcon) : img(icon(u.champ)),
+        iconImg: u => {
+          if (u.isPet && u.petIcon) return img(u.petIcon);
+          const p = img(portrait(u.champ, u.skin));
+          return u.skin && p.complete && !p.naturalWidth ? img(icon(u.champ)) : p;
+        },
         summIcon, itemIcon
       },
       hooks: { onEnd: onGameEnd, onUlt: callout, onKill: onKill, onFrame: hudTick, onObjective }
@@ -689,7 +719,7 @@
     $('kB').textContent = sim.kills[1];
     const t = Math.min(M.GAME_LEN, Math.floor(sim.t));
     $('sbClock').textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')} / ${Math.floor(M.GAME_LEN / 60)}:00`;
-    const obj = s => `<i style="--oc:#f97316" title="Ejder">${sim.drakes[s]}</i><i style="--oc:#a855f7" title="Baron">${sim.barons[s]}</i><i style="--oc:#facc15" title="Altın">${(sim.gold[s] / 1000).toFixed(1)}k</i>`;
+    const obj = s => `<i style="--oc:#94a3b8" title="Yıkılan kule">${sim.towersDown[s]}</i><i style="--oc:#f97316" title="Ejder">${sim.drakes[s]}</i><i style="--oc:#a855f7" title="Baron">${sim.barons[s]}</i><i style="--oc:#facc15" title="Altın">${(sim.gold[s] / 1000).toFixed(1)}k</i>`;
     $('oA').innerHTML = obj(0);
     $('oB').innerHTML = obj(1);
     for (const u of sim.units) {
@@ -718,7 +748,7 @@
     const el = document.createElement('div');
     el.className = `callout ${u.side ? 'r' : 'l'}`;
     el.style.setProperty('--c', col);
-    el.innerHTML = `<div class="face" style="background-image:url('${splashArt(u.champ)}')"></div><img class="uicon" src="${det.ultIcon || icon(u.champ)}" alt=""><div><div class="cn">${esc(u.champ.name.toLocaleUpperCase('tr'))}</div><div class="un">${esc(name)}</div></div>`;
+    el.innerHTML = `<div class="face" style="background-image:url('${splashArt(u.champ, u.skin)}')"></div><img class="uicon" src="${det.ultIcon || icon(u.champ)}" alt=""><div><div class="cn">${esc(u.champ.name.toLocaleUpperCase('tr'))}</div><div class="un">${esc(name)}</div></div>`;
     $('fxHost').querySelectorAll(`.callout.${u.side ? 'r' : 'l'}`).forEach(x => x.remove());
     $('fxHost').appendChild(el);
     setTimeout(() => el.remove(), 1750);
@@ -759,6 +789,11 @@
 
   function onObjective(e) {
     const m = e.m;
+    if (e.kind === 'tower' || e.kind === 'nexus') {
+      const team = e.side ? series.opp : S.team;
+      announce(e.kind === 'nexus' ? 'NEXUS YIKILDI!' : 'KULE YIKILDI', `${team.name}${e.u ? ' · ' + e.u.champ.name : ''}`, team.color);
+      return;
+    }
     if (e.kind === 'spawn') { if (m.key === 'baron') announce('BARON NASHOR', 'Nehrin üstünde uyandı', m.color); else announce('EJDER', 'Nehrin altında belirdi', m.color); return; }
     const team = e.side ? series.opp : S.team;
     announce(m.key === 'baron' ? 'BARON ALINDI!' : 'EJDER ALINDI!', `${team.name} · ${e.u.champ.name}`, team.color);
@@ -807,7 +842,7 @@
     const mvp = winners.reduce((b, u) => (score(u) > score(b) ? u : b), winners[0]);
     const rows = list.map((u, i) => `
       <tr class="${i === 5 ? 'sep' : ''}">
-        <td><div class="who" style="--c:${teams[u.side].color}"><img src="${icon(u.champ)}" alt=""><span>${esc(u.champ.name)}${u === mvp ? '<span class="mvp-tag">MVP</span>' : ''}</span></div></td>
+        <td><div class="who" style="--c:${teams[u.side].color}"><img src="${portrait(u.champ, u.skin)}" data-fb="${icon(u.champ)}"${porStyle(u.skin)} alt=""><span>${esc(u.champ.name)}${u === mvp ? '<span class="mvp-tag">MVP</span>' : ''}</span></div></td>
         <td class="num">${u.kills}/${u.deaths}/${u.assists}</td>
         <td class="num">${fmt(u.dmg)}</td>
         <td style="width:24%"><div class="dbar" style="--c:${teams[u.side].color};width:${u.dmg / maxDmg * 100}%"></div></td>
@@ -836,7 +871,7 @@
       const seriesWon = series.wins[0] > series.wins[1];
       const isFinal = S.tour.round === 2;
       title = seriesWon && isFinal ? '<span class="res-win">ŞAMPİYONSUN! 🏆</span>' : seriesWon ? `<span class="res-win">${ROUND_NAMES[S.tour.round]} geçildi!</span>` : '<span class="res-lose">Elendin</span>';
-      sub = series.bo === 1 ? `${esc(teams[sim.winner].name)} ${sim.kills[sim.winner]}-${sim.kills[1 - sim.winner]} skorla kazandı.` : `Seri sonucu: ${esc(S.team.tag)} ${series.wins[0]} - ${series.wins[1]} ${esc(series.opp.tag)}`;
+      sub = series.bo === 1 ? `${esc(teams[sim.winner].name)} ${sim.byNexus ? 'Nexus\'u yıkarak' : `${sim.kills[sim.winner]}-${sim.kills[1 - sim.winner]} skorla`} kazandı.` : `Seri sonucu: ${esc(S.team.tag)} ${series.wins[0]} - ${series.wins[1]} ${esc(series.opp.tag)}`;
       btn = `<button class="btn" id="seriesDone">${seriesWon && isFinal ? 'Kupayı al →' : 'Fikstüre dön →'}</button>`;
     }
     overlay(`
@@ -888,7 +923,7 @@
       <div class="end-hero">${hero}</div>
       <div class="end-grid">
         <div class="mvp-card">
-          <div class="art"><img src="${loadingArt(mvp.r.champ)}" alt=""></div>
+          <div class="art"><img src="${loadingArt(mvp.r.champ, mvp.r.skin)}" alt=""></div>
           <div class="body">
             <span class="chip gold">Turnuva MVP'si</span>
             <h3>${esc(mvp.r.champ.name)}</h3>

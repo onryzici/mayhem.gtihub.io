@@ -17,14 +17,19 @@
     { key: 'krugs', name: 'Taşçıllar', x: 540, y: 655, hp: 1550, ad: 70, r: 28, respawn: 50, color: '#b45309', gold: 80 }
   ];
   const EPIC_DEFS = [
-    { key: 'dragon', name: 'Ejder', x: 697, y: 590, hp: 6500, ad: 190, r: 44, spawn: 50, respawn: 70, ranged: true, color: '#f97316', gold: 300 },
-    { key: 'baron', name: 'Baron Nashor', x: 685, y: 205, hp: 11000, ad: 260, r: 52, spawn: 150, respawn: 110, color: '#a855f7', gold: 500 }
+    { key: 'dragon', name: 'Ejder', x: 700, y: 590, hp: 6500, ad: 190, r: 44, spawn: 50, respawn: 70, ranged: true, color: '#f97316', gold: 300 },
+    { key: 'baron', name: 'Baron Nashor', x: 700, y: 205, hp: 11000, ad: 260, r: 52, spawn: 150, respawn: 110, color: '#a855f7', gold: 500 }
   ];
   // Koridor bekleme noktaları (mavi taraf; kırmızı taraf aynalanır)
   const LANE_POS = { top: [515, 125], mid: [520, 415], adc: [505, 700], support: [540, 668], jungle: [420, 420] };
   const LANING_END = 110;
   const CARRY = { marksman: 1, onhit: 1, caster: 1, mage: 1, apAssassin: 1, assassin: 1, battlemage: 1 };
   const SMITE_DMG = 900;
+  // Kuleler (mavi taraf; kırmızı aynalanır) ve Nexus
+  const TOWER_DEFS = [{ lane: 'top', x: 330, y: 125 }, { lane: 'mid', x: 360, y: 425 }, { lane: 'adc', x: 395, y: 700 }];
+  const TOWER = { hp: 6000, ad: 280, range: 215, r: 30, gold: 250 };
+  const NEXUS = { x: 250, y: 400, hp: 8000, r: 42, gold: 0 };
+  const LANE_OF = { top: 'top', mid: 'mid', adc: 'adc', support: 'adc', jungle: 'mid' };
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const rnd = (a, b) => a + Math.random() * (b - a);
@@ -125,6 +130,82 @@
       teams.forEach((team, side) => team.roster.forEach((m, i) => this.units.push(this.makeUnit(m, side, i))));
       for (const side of [0, 1]) for (const def of CAMP_DEFS) this.addMonster(def, side, { x: side ? W - def.x : def.x, y: def.y });
       for (const def of EPIC_DEFS) this.addMonster(def, -1, { x: def.x, y: def.y });
+      this.structures = [];
+      this.towersDown = [0, 0];
+      for (const side of [0, 1]) {
+        for (const d of TOWER_DEFS) this.addStructure('tower', side, side ? W - d.x : d.x, d.y, d.lane);
+        this.addStructure('nexus', side, side ? W - NEXUS.x : NEXUS.x, NEXUS.y);
+      }
+    }
+
+    // ---------- yapılar ----------
+    addStructure(kind, side, x, y, lane) {
+      const T = kind === 'tower' ? TOWER : NEXUS;
+      const def = { key: kind, name: kind === 'tower' ? 'Kule' : 'Nexus', hp: T.hp, ad: T.ad || 0, r: T.r, gold: T.gold, color: '#94a3b8' };
+      const st = { hp: T.hp, ad: T.ad || 0, bonusAd: 0, ap: 0, armor: 80, mr: 80, asBase: 0.8, asBonus: 0, as: 0.8, crit: 0, ls: 0, ah: 0, ms: 0, range: 0, fx: {} };
+      const m = {
+        uid: this.nextUid++, side: 2, isMonster: true, isStruct: true, isTower: kind === 'tower', isNexus: kind === 'nexus', towerSide: side, lane,
+        def, key: kind, name: def.name, color: def.color, epic: false, st, st0: st, cls: 'structure', role: 'structure', champ: null, items: [], keystone: 0, summs: [], ult: null, power: 1,
+        x, y, home: { x, y }, r: T.r, facing: 0, maxHp: T.hp, hp: T.hp, shields: [], ranged: true, rangePx: TOWER.range,
+        atkCd: 0, energy: 0, streak: 0,
+        stun: 0, root: 0, sleep: 0, suppress: 0, stasis: 0, banish: 0, untarget: 0, invis: 0,
+        fear: null, charm: null, berserk: 0, slowAmt: 0, slowUntil: 0, air: null, dash: null, realm: 0, inside: null, hidden: false,
+        buffs: [], mod: null, dead: false, reviveAt: 0, deathT: 0, spawnAt: 0,
+        target: null, retarget: 0, lastHurt: -10, lastHurtBy: {}, attacks: 0, hitsOn: {},
+        spellblade: false, shred: 0, grievousUntil: 0, exhaustedUntil: 0, vulnUntil: 0, rune: {}, used: {}, summCd: {}, history: [],
+        kills: 0, deaths: 0, assists: 0, dmg: 0, taken: 0, heal: 0, cc: 0, flash: 0, lunge: 0, scale: 1
+      };
+      this.recalc(m);
+      this.units.push(m);
+      this.structures.push(m);
+      return m;
+    }
+    towersAlive(side) { return this.structures.filter(s => s.isTower && s.towerSide === side && !s.dead).length; }
+    nexusOpen(side) { return this.towersAlive(side) <= 1; }
+    // Bu noktayı koruyan sağlam kule
+    towerCovering(p, side) { return this.structures.find(s => s.isTower && !s.dead && s.towerSide === side && dist(s, p) < TOWER.range + s.r + 10); }
+    enemyLaneTarget(u) {
+      const side = 1 - u.side;
+      const lane = LANE_OF[u.role] || 'mid';
+      const t = this.structures.find(s => s.isTower && !s.dead && s.towerSide === side && s.lane === lane);
+      if (t) return t;
+      const nx = this.structures.find(s => s.isNexus && s.towerSide === side);
+      if (nx && !nx.dead && this.nexusOpen(side)) return nx;
+      return this.structures.filter(s => s.isTower && !s.dead && s.towerSide === side).sort((a, b) => dist(a, u) - dist(b, u))[0] || null;
+    }
+
+    updateTower(m, dt) {
+      if (m.dead || m.isNexus) return;
+      if (m.flash > 0) m.flash -= dt;
+      m.atkCd -= dt;
+      const side = m.towerSide;
+      const reach = o => dist(o, m) < TOWER.range + m.r + o.r;
+      const foes = this.units.filter(o => o.side === 1 - side && !o.dead && !o.realm && !o.isMonster && this.targetable(o) && reach(o));
+      if (!foes.length) { m.target = null; m.streak = 0; return; }
+      // kule kuralı: menzilde dost şampiyona vuran rakip önceliklidir
+      const allies = this.champs(side).filter(a => !a.dead && dist(a, m) < TOWER.range + 160);
+      const aggressor = foes.find(o => !o.isPet && allies.some(a => this.t - (a.lastHurtBy[o.uid] || -10) < 1.5));
+      let tg = aggressor || (m.target && foes.includes(m.target) ? m.target : null);
+      if (!tg) tg = foes.filter(o => o.isPet).sort((a, b) => dist(a, m) - dist(b, m))[0] || foes.sort((a, b) => dist(a, m) - dist(b, m))[0];
+      if (tg !== m.target) m.streak = 0;
+      m.target = tg;
+      if (m.atkCd > 0) return;
+      m.atkCd = 1.2;
+      const dmg = TOWER.ad * (1 + Math.min(1.2, m.streak * 0.3)) * (1 + Math.min(0.5, this.t / 600));
+      m.streak++;
+      this.shoot(m, tg, { speed: 1100, kind: 'spell', color: side ? '#fca5a5' : '#93c5fd', big: true, onHit: () => this.damage(m, tg, dmg, 'true', { tower: true }) });
+    }
+
+    killStructure(src, m) {
+      m.dead = true; m.hp = 0; m.deathT = this.t;
+      this.projs = this.projs.filter(p => p.tg !== m && p.src !== m);
+      let killer = src.isPet ? src.owner : src;
+      const side = 1 - m.towerSide;
+      if (m.isTower) { this.towersDown[side]++; this.gold[side] += TOWER.gold; }
+      for (const c of this.champs(side)) if (!c.dead && dist(c, m) < 700) c.energy += 15;
+      this.emit({ t: 'structureKill', m, u: killer && !killer.isMonster ? killer : null, side });
+      this.emit({ t: 'objective', kind: m.isNexus ? 'nexus' : 'tower', m, u: killer && !killer.isMonster ? killer : null, side });
+      if (m.isNexus) { this.nexusWinner = side; }
     }
 
     // ---------- orman ----------
@@ -215,6 +296,7 @@
     }
 
     killMonster(src, m) {
+      if (m.isStruct) { this.killStructure(src, m); return; }
       m.dead = true; m.hp = 0; m.deathT = this.t; m.spawnAt = this.t + m.def.respawn; m.burns = []; m.target = null;
       this.projs = this.projs.filter(p => p.tg !== m);
       let killer = src.isPet ? src.owner : src;
@@ -241,6 +323,14 @@
     foesNear(side, p, r) { return this.units.filter(o => (o.side === 1 - side) && !o.isPet && !o.dead && !o.realm && dist(o, p) < r); }
     friendsNear(side, p, r) { return this.units.filter(o => o.side === side && !o.isPet && !o.dead && !o.realm && dist(o, p) < r); }
     inFountain(o, side) { return dist(o, FOUNTAIN[side]) < FOUNTAIN_R; }
+    // Kule altındaki rakibe dalmaya değer mi?
+    diveOk(u, o) {
+      const tw = this.towerCovering(o, o.side);
+      if (!tw) return true;
+      if (tw.target && tw.target !== u && !tw.target.dead && tw.target.side === u.side) return o.hp / o.maxHp < 0.5;
+      return o.hp / o.maxHp < 0.22 && u.hp / u.maxHp > 0.55;
+    }
+    safe(o) { return !this.inFountain(o, o.side); }
     lanePos(u) {
       const p = LANE_POS[u.role] || LANE_POS.mid;
       return { x: u.side ? W - p[0] : p[0], y: p[1] };
@@ -289,6 +379,23 @@
           if (want && ourOn >= 2 && enemyOn >= ourOn + 2) want = false;
           if (want && (!plan || m.key === 'baron')) plan = m;
         }
+        if (!plan) {
+          // kuleni savun
+          for (const s of this.structures) {
+            if (s.dead || s.towerSide !== side || this.t - s.lastHurt > 2.5) continue;
+            const atk = this.foesNear(side, s, 420).length;
+            if (atk && mine >= atk) { plan = s; break; }
+          }
+        }
+        if (!plan) {
+          // baron gücü ya da sayı üstünlüğüyle birlikte it
+          const baron = this.champs(side).filter(c => !c.dead && c.buffs.some(b => b.key === 'baron')).length >= 3;
+          if ((baron || (diff >= 2 && mine >= 3)) && this.t > 60) {
+            const nx = this.structures.find(s => s.isNexus && s.towerSide === 1 - side && !s.dead && this.nexusOpen(1 - side));
+            const tw = this.structures.filter(s => s.isTower && !s.dead && s.towerSide === 1 - side).sort((a, b) => (a.lane === 'mid' ? -1 : 0) - (b.lane === 'mid' ? -1 : 0) || a.hp - b.hp)[0];
+            plan = nx || tw || null;
+          }
+        }
         this.plans[side] = plan;
       }
     }
@@ -317,9 +424,14 @@
         else return;
       }
       const engageR = (u.ranged ? 430 : 380) + (u.cls === 'assassin' || u.cls === 'engage' || u.cls === 'apAssassin' ? 70 : 0);
-      const foes = this.enemiesOf(u).filter(o => !o.isPet && dist(o, u) < engageR && !this.inFountain(o, o.side));
-      const odds = this.odds(u, 600);
+      const foes = this.enemiesOf(u).filter(o => !o.isPet && dist(o, u) < engageR && !this.inFountain(o, o.side) && this.diveOk(u, o));
+      let odds = this.odds(u, 600);
+      // düşman kulesinin hedefindeysek savaş daha kötü
+      const tw = this.towerCovering(u, 1 - u.side);
+      if (tw && tw.target === u) odds *= 0.55;
       const killable = foes.some(o => o.hp / o.maxHp < 0.22 && dist(o, u) < 320);
+      const shotBy = this.structures.find(s => s.isTower && !s.dead && s.target === u);
+      if (shotBy && pct < 0.6 && !killable) { u.mode = 'retreat'; u.goal = { x: u.x + (u.x - shotBy.x) * 1.5 + (FOUNTAIN[u.side].x - u.x) * 0.3, y: u.y + (u.y - shotBy.y) * 0.8 }; return; }
       if (!killable && (pct < 0.25 || (pct < 0.45 && odds < 0.8 && foes.length) || (pct < 0.6 && odds < 0.45 && foes.length))) {
         u.mode = 'recall'; u.target = null; u.recallAt = 0;
         return;
@@ -362,6 +474,13 @@
       // takım hedefi (ejder / baron)
       const plan = this.plans[u.side];
       if (plan && !plan.dead && pct > 0.4) {
+        if (plan.isStruct && plan.towerSide === u.side) { u.mode = 'move'; u.goal = { x: plan.x + (u.side ? -60 : 60), y: plan.y }; return; }
+        if (plan.isStruct) {
+          u.camp = plan;
+          if (dist(u, plan) < this.rangePx(u) + u.r + plan.r + 40) u.mode = 'camp';
+          else { u.mode = 'move'; u.goal = { x: plan.x + (u.side ? 1 : -1) * 60, y: plan.y }; }
+          return;
+        }
         if (dist(u, plan) < 280) { u.mode = 'camp'; u.camp = plan; }
         else { u.mode = 'move'; u.goal = { x: plan.x + (u.side ? 90 : -90), y: plan.y + (plan.y > H / 2 ? -40 : 40) }; }
         return;
@@ -381,6 +500,14 @@
       const lp = this.lanePos(u);
       if (u.role !== 'jungle' && pct > 0.55) {
         const laneFoes = this.foesNear(u.side, lp, 520).length;
+        // koridor boşsa kuleyi it
+        const tgt = this.enemyLaneTarget(u);
+        if (tgt && (!laneFoes || this.t > LANING_END) && this.foesNear(u.side, tgt, 650).length === 0 && this.t > 15 && (u.role !== 'support' || this.friendsNear(u.side, tgt, 500).length)) {
+          u.camp = tgt;
+          u.mode = dist(u, tgt) < this.rangePx(u) + u.r + tgt.r + 40 ? 'camp' : 'move';
+          u.goal = { x: tgt.x + (u.side ? 1 : -1) * 40, y: tgt.y };
+          return;
+        }
         if (!laneFoes && this.t > 20) {
           const c = this.monsters.find(m => !m.dead && !m.epic && m.campSide === u.side && dist(m, u) < 360 && !this.friendsNear(u.side, m, 200).some(a => a.role === 'jungle'));
           if (c && u.role !== 'support') { u.camp = c; u.mode = dist(u, c) < 200 ? 'camp' : 'move'; u.goal = { x: c.x, y: c.y }; return; }
@@ -468,7 +595,7 @@
       const x = FOUNTAIN[side].x + Math.cos(ang) * 40;
       const y = FOUNTAIN[side].y + Math.sin(ang) * 55;
       const u = {
-        uid: this.nextUid++, side, champ: m.champ, role: m.role, cls, st, items: m.items || [],
+        uid: this.nextUid++, side, champ: m.champ, skin: m.skin || 0, role: m.role, cls, st, items: m.items || [],
         keystone: m.keystone, summs: (m.summs || []).slice(), ult: D.ultOf(m.champ), ultName: m.ultName || 'Ulti', ultIcon: m.ultIcon,
         x, y, r: 28, facing: side ? Math.PI : 0,
         maxHp: st.hp * HP_MULT, hp: st.hp * HP_MULT, shields: [],
@@ -632,6 +759,7 @@
     }
 
     updateUnit(u, dt) {
+      if (u.isStruct) { this.updateTower(u, dt); return; }
       if (u.isMonster) { this.updateMonster(u, dt); return; }
       if (u.dead) {
         if (u.reviveAt && this.t >= u.reviveAt) { if (u.respawnHome) this.respawn(u); else this.revive(u, u.reviveHp || 0.5); }
@@ -783,7 +911,7 @@
         if (allies.length) return allies.sort((a, b) => dist(u, a) - dist(u, b))[0];
       }
       const leash = u.isPet ? 900 : 640;
-      const ok = o => !o.isMonster && !this.inFountain(o, o.side) && dist(u, o) < leash;
+      const ok = o => !o.isMonster && !this.inFountain(o, o.side) && dist(u, o) < leash && (u.isPet || this.diveOk(u, o));
       if (u.target && !u.target.dead && !u.target.isMonster && this.targetable(u.target) && this.sameRealm(u, u.target) && u.target.side !== u.side && u.retarget > 0 && ok(u.target)) return u.target;
       u.retarget = 0.6;
       const foes = this.enemiesOf(u).filter(ok);
@@ -924,7 +1052,7 @@
         const epic = this.monsters.find(m => m.epic && !m.dead && dist(u, m) < 260 + m.r && m.hp <= SMITE_DMG);
         const epicSoon = this.monsters.some(m => m.epic && ((!m.dead && dist(u, m) < 900) || (m.dead && m.spawnAt - this.t < 15 && m.spawnAt > this.t)));
         if (epic) smite(epic, SMITE_DMG, 30);
-        else if (!epicSoon && u.mode === 'camp' && u.camp && !u.camp.epic && !u.camp.dead && dist(u, u.camp) < 220 && u.camp.hp > SMITE_DMG * 0.6) smite(u.camp, SMITE_DMG, 30);
+        else if (!epicSoon && u.mode === 'camp' && u.camp && !u.camp.epic && !u.camp.isStruct && !u.camp.dead && dist(u, u.camp) < 220 && u.camp.hp > SMITE_DMG * 0.6) smite(u.camp, SMITE_DMG, 30);
         else if (!epicSoon && u.mode === 'fight' && u.target && !u.target.isPet && !u.target.isMonster && !u.target.dead && dist(u, u.target) < 200 && u.target.hp / u.target.maxHp < 0.2) smite(u.target, 220, 30);
       }
       if (ready('SummonerHaste') && u.mode === 'fight' && u.target && !u.target.isMonster && dist(u, u.target) > 280) {
@@ -2249,6 +2377,14 @@
     // ---------- hasar ----------
     damage(src, t, raw, type, o = {}) {
       if (!t || t.dead || raw <= 0) return 0;
+      if (t.isStruct) {
+        if (src.isStruct || src.isMonster || (src.side === t.towerSide)) return 0;
+        if (t.isNexus && !this.nexusOpen(t.towerSide)) { if (!o.quiet) this.emit({ t: 'immune', u: t }); return 0; }
+        if (o.smite || o.dot) return 0;
+        // kule kaplaması: erken oyunda yapılar çok dayanıklı, sonra yumuşar
+        raw *= this.t < LANING_END ? 0.22 : this.t < 200 ? 0.38 : 0.55;
+        if (o.aoe) raw *= 0.5;
+      }
       if (t.stasis > 0 || t.banish > 0) return 0;
       if (t.inside && !t.insideAlly) return 0;
       if (src.realm !== t.realm) return 0;
@@ -2455,10 +2591,12 @@
         if (a.realm !== b.realm) continue;
         const d = dist(a, b), min = (a.r + b.r) * 0.9;
         if (d < min && d > 0.01) {
+          if (a.isStruct && b.isStruct) continue;
           const push = (min - d) / 2;
           const nx = (a.x - b.x) / d, ny = (a.y - b.y) / d;
-          a.x += nx * push; a.y += ny * push;
-          b.x -= nx * push; b.y -= ny * push;
+          const ka = a.isStruct ? 0 : b.isStruct ? 2 : 1, kb = b.isStruct ? 0 : a.isStruct ? 2 : 1;
+          a.x += nx * push * ka; a.y += ny * push * ka;
+          b.x -= nx * push * kb; b.y -= ny * push * kb;
         }
       }
     }
@@ -2466,8 +2604,9 @@
     alive(side) { return this.units.some(u => u.side === side && !u.isPet && (!u.dead || u.reviveAt)); }
 
     // 5 dakika sonunda: önce skor, eşitse ejder+baron, sonra altın
-    score(side) { return this.kills[side] * 1000 + (this.drakes[side] + this.barons[side] * 2) * 10 + this.gold[side] / 10000; }
+    score(side) { return this.kills[side] * 1000 + (this.drakes[side] + this.barons[side] * 2 + this.towersDown[side]) * 10 + this.gold[side] / 10000; }
     checkEnd() {
+      if (this.nexusWinner !== undefined) { this.done = true; this.winner = this.nexusWinner; this.byNexus = true; return; }
       if (this.t < GAME_LEN) return;
       this.done = true;
       const a = this.score(0), b = this.score(1);

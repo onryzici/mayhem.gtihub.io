@@ -18,6 +18,13 @@
     return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
   }
 
+  // Kare simge ya da dikey kostüm görselinden yüz kırpımı
+  function drawPic(c, pic, x, y, size) {
+    const w = pic.naturalWidth, h = pic.naturalHeight;
+    if (h > w * 1.2) { const sw = w * 0.66; c.drawImage(pic, (w - sw) / 2, h * 0.07, sw, sw, x, y, size, size); }
+    else c.drawImage(pic, x, y, size, size);
+  }
+
   function makeGround(colors) {
     const SC = 1.5;
     const c = document.createElement('canvas');
@@ -359,7 +366,7 @@
             break;
           case 'stasis': this.float(e.u, 'DOKUNULMAZ', '#fde68a', 13); this.addFx({ kind: 'ring', x: e.u.x, y: e.u.y, r: 50, color: e.color || '#fde68a', life: 0.5, realm: e.u.realm }); break;
           case 'block': this.float(e.u, 'ENGELLENDİ', '#cbd5e1', 13); this.addFx({ kind: 'ring', x: e.u.x, y: e.u.y, r: 40, color: '#e2e8f0', life: 0.4, realm: e.u.realm }); break;
-          case 'immune': if (Math.random() < 0.3) this.float(e.u, 'ÖLÜMSÜZ', '#fde68a', 12, { life: 0.6 }); break;
+          case 'immune': if (Math.random() < (e.u.isNexus ? 0.08 : 0.3)) this.float(e.u, e.u.isNexus ? 'KORUMALI' : 'ÖLÜMSÜZ', '#fde68a', 12, { life: 0.6 }); break;
           case 'revive': this.float(e.u, 'DİRİLDİ', '#fde68a', 16); this.addFx({ kind: 'column', x: e.u.x, y: e.u.y, r: 40, color: '#fde68a', life: 0.8 }); break;
           case 'kill':
             this.burst(e.victim.x, e.victim.y, this.colors[e.victim.side], 30, 220, 4, e.victim.realm);
@@ -392,6 +399,16 @@
             break;
           }
           case 'objective': this.hooks.onObjective && this.hooks.onObjective(e); break;
+          case 'structureKill': {
+            const m = e.m, col = this.colors[m.towerSide];
+            this.burst(m.x, m.y, col, m.isNexus ? 90 : 45, m.isNexus ? 420 : 280, 5);
+            this.burst(m.x, m.y, '#a8a29e', 30, 200, 4, 0, { g: 300, up: 160 });
+            this.addFx({ kind: 'ring', x: m.x, y: m.y, r: m.isNexus ? 240 : 140, color: col, life: 0.9, big: true });
+            this.addFx({ kind: 'flashDisk', x: m.x, y: m.y, r: m.isNexus ? 160 : 80, color: col, life: 0.4 });
+            this.shake = Math.max(this.shake, m.isNexus ? 18 : 10);
+            if (m.isNexus) this.slowmo = 1.5;
+            break;
+          }
           case 'respawn': this.addFx({ kind: 'column', x: e.u.x, y: e.u.y, r: 32, color: this.colors[e.u.side], life: 0.6 }); break;
           case 'death':
             this.burst(e.victim.x, e.victim.y, this.colors[e.victim.side], 24, 200, 4, e.victim.realm);
@@ -518,6 +535,44 @@
       c.fillStyle = vg;
       c.fillRect(0, 0, this.canvas.width, this.canvas.height);
       if (sim.realmInfo) this.drawRealm(c);
+      this.drawMinimap(c);
+    }
+
+    drawMinimap(c) {
+      const sim = this.sim, k = this.canvas.width / VW;
+      const mw = 236 * k, mh = mw * M.H / M.W, pad = 12 * k;
+      const ox = this.canvas.width - mw - pad, oy = this.canvas.height - mh - pad;
+      const sx = mw / M.W, sy = mh / M.H;
+      c.save();
+      c.globalAlpha = 0.92;
+      c.fillStyle = 'rgba(5,8,12,0.85)'; c.fillRect(ox - 3 * k, oy - 3 * k, mw + 6 * k, mh + 6 * k);
+      c.drawImage(this.ground, ox, oy, mw, mh);
+      c.globalAlpha = 1;
+      c.strokeStyle = 'rgba(212,173,85,0.7)'; c.lineWidth = 1.5 * k; c.strokeRect(ox - 1.5 * k, oy - 1.5 * k, mw + 3 * k, mh + 3 * k);
+      const P = (x, y) => [ox + x * sx, oy + y * sy];
+      for (const u of sim.units) {
+        if (u.dead && !u.isStruct) continue;
+        if (u.realm) continue;
+        const [x, y] = P(u.x, u.y);
+        if (u.isStruct) {
+          if (u.dead) continue;
+          const z = (u.isNexus ? 6 : 4) * k;
+          c.fillStyle = this.colors[u.towerSide]; c.strokeStyle = '#000'; c.lineWidth = 1 * k;
+          c.fillRect(x - z, y - z, z * 2, z * 2); c.strokeRect(x - z, y - z, z * 2, z * 2);
+        } else if (u.isMonster) {
+          c.fillStyle = u.epic ? u.color : '#d6a46b';
+          c.beginPath(); c.arc(x, y, (u.epic ? 5 : 2.6) * k, 0, TAU); c.fill();
+        } else if (!u.isPet) {
+          c.fillStyle = this.colors[u.side]; c.strokeStyle = u.energy >= 100 ? '#f3d58a' : '#000'; c.lineWidth = 1.5 * k;
+          c.beginPath(); c.arc(x, y, 4.5 * k, 0, TAU); c.fill(); c.stroke();
+        }
+      }
+      // kamera çerçevesi
+      const hw = VW / 2 / this.cam.z, hh = VH / 2 / this.cam.z;
+      const [cx0, cy0] = P(this.cam.x - hw, this.cam.y - hh), [cx1, cy1] = P(this.cam.x + hw, this.cam.y + hh);
+      c.strokeStyle = 'rgba(255,255,255,0.8)'; c.lineWidth = 1.2 * k;
+      c.strokeRect(Math.max(ox, cx0), Math.max(oy, cy0), Math.min(ox + mw, cx1) - Math.max(ox, cx0), Math.min(oy + mh, cy1) - Math.max(oy, cy0));
+      c.restore();
     }
 
     drawRiver(c) {
@@ -594,14 +649,14 @@
         c.globalAlpha = (g.life / g.max) * 0.35;
         if (pic && pic.complete && pic.naturalWidth) {
           c.save(); c.beginPath(); c.arc(g.x, g.y - g.z, g.u.r, 0, TAU); c.clip();
-          c.drawImage(pic, g.x - g.u.r, g.y - g.z - g.u.r, g.u.r * 2, g.u.r * 2);
+          drawPic(c, pic, g.x - g.u.r, g.y - g.z - g.u.r, g.u.r * 2);
           c.restore();
         }
         c.globalAlpha = 1;
       }
       // birimler (önce ölüler)
       const units = sim.units.filter(u => (u.realm || 0) === realm && u.banish <= 0 && !(u.inside)).sort((a, b) => (b.dead - a.dead) || a.y - b.y);
-      for (const u of units) { if (u.isMonster) this.drawMonster(c, u); else this.drawUnit(c, u); }
+      for (const u of units) { if (u.isStruct) this.drawStructure(c, u); else if (u.isMonster) this.drawMonster(c, u); else this.drawUnit(c, u); }
       // mermiler
       for (const p of sim.projs) if ((p.realm || 0) === realm) this.drawProj(c, p);
       // efektler
@@ -725,7 +780,7 @@
         if (pic && pic.complete && pic.naturalWidth) {
           c.save(); c.beginPath(); c.arc(u.x, u.y, r * 0.75, 0, TAU); c.clip();
           c.filter = 'grayscale(1) brightness(0.6)';
-          c.drawImage(pic, u.x - r * 0.75, u.y - r * 0.75, r * 1.5, r * 1.5);
+          drawPic(c, pic, u.x - r * 0.75, u.y - r * 0.75, r * 1.5);
           c.filter = 'none';
           c.restore();
         }
@@ -751,7 +806,7 @@
       c.save();
       c.beginPath(); c.arc(x, y, r, 0, TAU); c.clip();
       if (u.isPet && u.st && !u.petIcon) { c.fillStyle = col; c.fill(); }
-      if (pic && pic.complete && pic.naturalWidth) c.drawImage(pic, x - r, y - r, r * 2, r * 2);
+      if (pic && pic.complete && pic.naturalWidth) drawPic(c, pic, x - r, y - r, r * 2);
       else { c.fillStyle = col; c.fill(); }
       if (u.flash > 0) { c.fillStyle = `rgba(255,255,255,${u.flash / 0.12 * 0.55})`; c.fillRect(x - r, y - r, r * 2, r * 2); }
       if (u.stasis > 0) { c.fillStyle = 'rgba(253,230,138,0.6)'; c.fillRect(x - r, y - r, r * 2, r * 2); }
@@ -843,6 +898,73 @@
           c.restore();
         }
       }
+      c.restore();
+    }
+
+    drawStructure(c, m) {
+      const sim = this.sim, col = this.colors[m.towerSide], x = m.x, y = m.y, r = m.r;
+      c.save();
+      if (m.dead) {
+        // enkaz
+        c.fillStyle = 'rgba(0,0,0,0.35)'; c.beginPath(); c.ellipse(x, y + 8, r * 1.3, r * 0.5, 0, 0, TAU); c.fill();
+        for (let i = 0; i < 7; i++) {
+          const a = i * 2.4 + m.uid, d = r * (0.3 + (i % 3) * 0.3);
+          c.fillStyle = i % 2 ? '#57534e' : '#78716c';
+          c.beginPath(); c.ellipse(x + Math.cos(a) * d, y + Math.sin(a) * d * 0.5 + 4, 9 - i % 3 * 2, 6, a, 0, TAU); c.fill();
+        }
+        c.restore();
+        return;
+      }
+      // menzil halkası: rakip şampiyon yakınsa
+      if (m.isTower) {
+        const near = sim.units.some(o => o.side === 1 - m.towerSide && !o.dead && !o.isMonster && !o.isPet && Math.hypot(o.x - x, o.y - y) < 215 + r + 120);
+        if (near) {
+          c.strokeStyle = hexA(m.target ? '#ef4444' : col, 0.55); c.lineWidth = 2; c.setLineDash([8, 8]); c.lineDashOffset = -this.real * 20;
+          c.beginPath(); c.arc(x, y, 215 + r, 0, TAU); c.stroke(); c.setLineDash([]);
+        }
+      }
+      c.fillStyle = 'rgba(0,0,0,0.45)'; c.beginPath(); c.ellipse(x + 5, y + r * 0.7, r * 1.25, r * 0.45, 0, 0, TAU); c.fill();
+      if (m.isTower) {
+        // taş kaide + gövde + kristal
+        const sg = c.createLinearGradient(x - r, 0, x + r, 0);
+        sg.addColorStop(0, '#57534e'); sg.addColorStop(0.5, '#a8a29e'); sg.addColorStop(1, '#44403c');
+        c.fillStyle = sg; c.strokeStyle = 'rgba(0,0,0,0.75)'; c.lineWidth = 2.5;
+        c.beginPath(); c.ellipse(x, y + r * 0.45, r * 1.05, r * 0.42, 0, 0, TAU); c.fill(); c.stroke();
+        c.beginPath(); c.moveTo(x - r * 0.62, y + r * 0.45); c.lineTo(x - r * 0.42, y - r * 1.3); c.lineTo(x + r * 0.42, y - r * 1.3); c.lineTo(x + r * 0.62, y + r * 0.45); c.closePath(); c.fill(); c.stroke();
+        c.fillStyle = 'rgba(0,0,0,0.25)';
+        for (let i = 0; i < 3; i++) c.fillRect(x - r * 0.5, y - r * 0.9 + i * r * 0.5, r, 2);
+        c.fillStyle = '#d4ad55'; c.beginPath(); c.ellipse(x, y - r * 1.3, r * 0.6, r * 0.2, 0, 0, TAU); c.fill(); c.stroke();
+        const bob = Math.sin(this.real * 2.2 + m.uid) * 3;
+        c.fillStyle = col; c.strokeStyle = 'rgba(0,0,0,0.7)';
+        c.beginPath(); c.moveTo(x, y - r * 2.25 + bob); c.lineTo(x + r * 0.32, y - r * 1.75 + bob); c.lineTo(x, y - r * 1.4 + bob); c.lineTo(x - r * 0.32, y - r * 1.75 + bob); c.closePath(); c.fill(); c.stroke();
+        c.fillStyle = 'rgba(255,255,255,0.55)';
+        c.beginPath(); c.moveTo(x, y - r * 2.25 + bob); c.lineTo(x + r * 0.1, y - r * 1.8 + bob); c.lineTo(x - r * 0.12, y - r * 1.75 + bob); c.closePath(); c.fill();
+      } else {
+        // Nexus: yüzen büyük kristal, açıkken çatlak
+        const open = sim.nexusOpen(m.towerSide);
+        for (let i = 0; i < 8; i++) {
+          const a = i / 8 * TAU;
+          c.fillStyle = i % 2 ? '#78716c' : '#a8a29e';
+          c.beginPath(); c.ellipse(x + Math.cos(a) * r * 1.05, y + Math.sin(a) * r * 0.5 + 8, 12, 8, a, 0, TAU); c.fill();
+        }
+        const bob = Math.sin(this.real * 1.6) * 4;
+        c.fillStyle = col; c.strokeStyle = 'rgba(0,0,0,0.75)'; c.lineWidth = 3;
+        c.beginPath(); c.moveTo(x, y - r * 1.7 + bob); c.lineTo(x + r * 0.62, y - r * 0.4 + bob); c.lineTo(x, y + r * 0.55 + bob); c.lineTo(x - r * 0.62, y - r * 0.4 + bob); c.closePath(); c.fill(); c.stroke();
+        c.fillStyle = 'rgba(255,255,255,0.45)';
+        c.beginPath(); c.moveTo(x, y - r * 1.7 + bob); c.lineTo(x + r * 0.2, y - r * 0.5 + bob); c.lineTo(x - r * 0.25, y - r * 0.35 + bob); c.closePath(); c.fill();
+        if (open) {
+          c.strokeStyle = 'rgba(15,23,42,0.85)'; c.lineWidth = 2;
+          c.beginPath(); c.moveTo(x - r * 0.1, y - r * 1.2 + bob); c.lineTo(x + r * 0.12, y - r * 0.6 + bob); c.lineTo(x - r * 0.08, y - r * 0.1 + bob); c.lineTo(x + r * 0.2, y + r * 0.3 + bob); c.stroke();
+        } else {
+          c.strokeStyle = hexA('#fde68a', 0.6); c.lineWidth = 2; c.setLineDash([5, 7]); c.lineDashOffset = this.real * 10;
+          c.beginPath(); c.arc(x, y - r * 0.5, r * 1.25, 0, TAU); c.stroke(); c.setLineDash([]);
+        }
+      }
+      if (m.flash > 0) { c.fillStyle = `rgba(255,255,255,${m.flash / 0.12 * 0.35})`; c.beginPath(); c.arc(x, y - r * 0.5, r, 0, TAU); c.fill(); }
+      // can barı
+      const bw = m.isNexus ? 100 : 70, bh = 7, bx = x - bw / 2, by = y - r * (m.isNexus ? 2.2 : 2.6) - 6;
+      c.fillStyle = 'rgba(5,8,12,0.85)'; c.fillRect(bx - 2, by - 2, bw + 4, bh + 4);
+      c.fillStyle = col; c.fillRect(bx, by, bw * Math.max(0, m.hp) / m.maxHp, bh);
       c.restore();
     }
 
