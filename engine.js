@@ -3,7 +3,7 @@
   const D = root.MayhemData;
   const W = 1400, H = 800, LEVEL = 18;
   const REALM = { x: W / 2, y: -700, r: 170 };
-  const RANGE_SCALE = 0.38, MS_SCALE = 0.5, HP_MULT = 2.2;
+  const RANGE_SCALE = 0.38, MS_SCALE = 0.5, HP_MULT = 4.0;
   const TAU = Math.PI * 2;
   // Harita: 5 dakikalık maç, üsler, orman kampları ve destansı canavarlar
   const GAME_LEN = 300;
@@ -27,7 +27,7 @@
   const SMITE_DMG = 900;
   // Kuleler (mavi taraf; kırmızı aynalanır) ve Nexus
   const TOWER_DEFS = [{ lane: 'top', x: 330, y: 125 }, { lane: 'mid', x: 360, y: 425 }, { lane: 'adc', x: 395, y: 700 }];
-  const TOWER = { hp: 6000, ad: 280, range: 215, r: 30, gold: 250 };
+  const TOWER = { hp: 5000, ad: 460, range: 215, r: 30, gold: 250 };
   const NEXUS = { x: 250, y: 400, hp: 8000, r: 42, gold: 0 };
   const LANE_OF = { top: 'top', mid: 'mid', adc: 'adc', support: 'adc', jungle: 'mid' };
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -278,7 +278,7 @@
       if (m.atkCd <= 0) {
         m.atkCd = 1 / m.st.as;
         m.lunge = 0.14;
-        const dmg = m.st.ad * (1 + Math.min(0.6, Math.max(0, this.t - 60) / 400));
+        const dmg = m.st.ad * (HP_MULT / 2.2) * (1 + Math.min(0.6, Math.max(0, this.t - 60) / 400));
         if (m.ranged) {
           this.shoot(m, tg, { speed: 900, kind: 'spell', color: m.color, big: true, onHit: () => {
             this.emit({ t: 'blast', x: tg.x, y: tg.y, r: 70, color: m.color });
@@ -432,7 +432,7 @@
       const killable = foes.some(o => o.hp / o.maxHp < 0.22 && dist(o, u) < 320);
       const shotBy = this.structures.find(s => s.isTower && !s.dead && s.target === u);
       if (shotBy && pct < 0.6 && !killable) { u.mode = 'retreat'; u.goal = { x: u.x + (u.x - shotBy.x) * 1.5 + (FOUNTAIN[u.side].x - u.x) * 0.3, y: u.y + (u.y - shotBy.y) * 0.8 }; return; }
-      if (!killable && (pct < 0.25 || (pct < 0.45 && odds < 0.8 && foes.length) || (pct < 0.6 && odds < 0.45 && foes.length))) {
+      if (!killable && (pct < 0.38 || (pct < 0.45 && odds < 0.8 && foes.length) || (pct < 0.6 && odds < 0.45 && foes.length))) {
         u.mode = 'recall'; u.target = null; u.recallAt = 0;
         return;
       }
@@ -2546,7 +2546,7 @@
         if (best) killer = best;
       }
       if (t.st.fx.ga && !t.used.ga) { t.used.ga = 1; t.reviveAt = this.t + 4; t.reviveHp = 0.5; this.emit({ t: 'itemProc', u: t, id: 3026 }); }
-      else { t.reviveAt = this.t + 10 + this.t * 0.04; t.respawnHome = true; }
+      else { t.reviveAt = this.t + 18 + this.t * 0.07; t.respawnHome = true; }
       if (!killer.isMonster && killer.side !== t.side) {
         this.gold[killer.side] += 300;
         // buffları katile geçer
