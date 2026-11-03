@@ -1125,6 +1125,8 @@
   const BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt'];
   const P = 'mayhemligi/v2/';
   const NET = { c: null, ready: null, subs: new Map(), broker: '' };
+  // Her sekmenin kendi ağ kimliği olur: aynı tarayıcıda iki sekme birbiriyle oynayabilir
+  const SID = PROFILE.id + '-' + Math.random().toString(36).slice(2, 6);
   function netConnect() {
     if (NET.ready) return NET.ready;
     NET.ready = new Promise((resolve, reject) => {
@@ -1133,13 +1135,13 @@
       const tryNext = () => {
         if (i >= BROKERS.length) { NET.ready = null; reject(new Error('Sunucuya bağlanılamadı')); return; }
         const url = BROKERS[i++];
-        const c = window.mqtt.connect(url, { clean: true, connectTimeout: 7000, reconnectPeriod: 0, keepalive: 30, clientId: 'mh_' + PROFILE.id + '_' + Math.random().toString(36).slice(2, 6) });
+        const c = window.mqtt.connect(url, { clean: true, connectTimeout: 7000, reconnectPeriod: 0, keepalive: 30, clientId: 'mh_' + SID });
         let ok = false;
         c.on('connect', () => {
           ok = true; NET.c = c; NET.broker = url;
           c.on('message', (topic, buf) => {
             let m; try { m = JSON.parse(buf.toString()); } catch (e) { return; }
-            if (!m || m.from === PROFILE.id) return;
+            if (!m || m.from === SID) return;
             const fn = NET.subs.get(topic);
             if (fn) fn(m);
           });
@@ -1156,7 +1158,7 @@
   }
   function sub(topic, fn) { NET.subs.set(topic, fn); if (NET.c) NET.c.subscribe(topic); }
   function unsub(topic) { NET.subs.delete(topic); if (NET.c) NET.c.unsubscribe(topic); }
-  function pub(topic, m) { if (NET.c) NET.c.publish(topic, JSON.stringify({ ...m, from: PROFILE.id })); }
+  function pub(topic, m) { if (NET.c) NET.c.publish(topic, JSON.stringify({ ...m, from: SID })); }
   const inbox = id => `${P}u/${id}`;
 
   // ---------- 9. eşleşme ve odalar ----------
@@ -1178,7 +1180,7 @@
     if (!NET.subs.has(`${P}q`)) {
       sub(`${P}q`, m => { MM.seen.set(m.from, { ...m, at: Date.now() }); });
       sub(`${P}rooms`, m => { if (m.closed) MM.rooms.delete(m.from); else MM.rooms.set(m.from, { ...m, at: Date.now() }); renderRooms(); });
-      sub(inbox(PROFILE.id), onInbox);
+      sub(inbox(SID), onInbox);
       clearInterval(MM.timer);
       MM.timer = setInterval(mmTick, 1000);
     }
@@ -1196,13 +1198,13 @@
   function mmTick() {
     renderRooms();
     if (MM.state === 'queue') {
-      pub(`${P}q`, { ...meCard(), w: mmWindow() });
+      pub(`${P}q`, { ...meCard(), w: mmWindow(), pid: PROFILE.id });
       const waited = Math.floor((Date.now() - MM.since) / 1000);
       rkStatus(`Maç aranıyor… ${Math.floor(waited / 60)}:${String(waited % 60).padStart(2, '0')} · ±${Math.round(mmWindow())} puan aralığı`, true);
       if (MM.pending && Date.now() - MM.pending.at > 5000) MM.pending = null;
       if (!MM.pending) {
-        const cand = [...MM.seen.values()].filter(o => Math.abs(o.lp - PROFILE.lp) <= Math.max(mmWindow(), o.w || 0)).sort((a, b) => Math.abs(a.lp - PROFILE.lp) - Math.abs(b.lp - PROFILE.lp))[0];
-        if (cand && PROFILE.id < cand.from) {
+        const cand = [...MM.seen.values()].filter(o => o.pid !== PROFILE.id && Math.abs(o.lp - PROFILE.lp) <= Math.max(mmWindow(), o.w || 0)).sort((a, b) => Math.abs(a.lp - PROFILE.lp) - Math.abs(b.lp - PROFILE.lp))[0];
+        if (cand && SID < cand.from) {
           MM.pending = { to: cand.from, match: Math.random().toString(36).slice(2, 10), at: Date.now() };
           pub(inbox(cand.from), { type: 'invite', match: MM.pending.match, card: meCard(), ranked: true });
         }
@@ -1213,7 +1215,7 @@
   }
   function onInbox(m) {
     if (m.type === 'invite' && MM.state === 'queue') {
-      if (MM.pending) { pub(inbox(m.from), { type: 'decline' }); return; }
+      if (MM.pending || String(m.from).startsWith(PROFILE.id + '-')) { pub(inbox(m.from), { type: 'decline' }); return; }
       pub(inbox(m.from), { type: 'accept', match: m.match, card: meCard() });
       beginMatch({ id: m.match, host: false, oppId: m.from, opp: m.card, ranked: true });
     } else if (m.type === 'accept' && MM.state === 'queue' && MM.pending && MM.pending.to === m.from && MM.pending.match === m.match) {

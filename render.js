@@ -233,6 +233,30 @@
       this.onClick = e => this.click(e);
       canvas.addEventListener('pointerdown', this.onClick);
       requestAnimationFrame(this.frame);
+      // online maçta sekme arka plandayken de simülasyon ilerlesin (çizim yapmadan)
+      if (this.gate) {
+        this.bgLast = performance.now();
+        this.bgTimer = setInterval(() => {
+          const now = performance.now();
+          const realDt = Math.min(3, (now - this.bgLast) / 1000);
+          this.bgLast = now;
+          if (!this.running || !document.hidden) return;
+          this.last = now;
+          if (!this.sim.done) {
+            this.acc += realDt * this.speed;
+            let steps = 0;
+            while (this.acc >= 1 / 60 && !this.sim.done && steps < 240) {
+              if (!this.gate(this.sim.tick + 1)) { this.acc = Math.min(this.acc, 0.1); break; }
+              this.sim.step(1 / 60); this.acc -= 1 / 60; steps++;
+              this.sim.events.length = 0;
+            }
+          } else if (!this.ended) {
+            this.doneFor += realDt;
+            if (this.doneFor > 1.8) { this.ended = true; this.hooks.onEnd && this.hooks.onEnd(this.sim); }
+          }
+          this.hooks.onFrame && this.hooks.onFrame(this.sim, realDt);
+        }, 250);
+      }
     }
 
     resize() {
@@ -243,6 +267,7 @@
 
     stop() {
       this.running = false;
+      clearInterval(this.bgTimer);
       window.removeEventListener('resize', this.onResize);
       this.canvas.removeEventListener('pointerdown', this.onClick);
     }
