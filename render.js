@@ -1018,7 +1018,7 @@
       if (m.lunge > 0) { const p = Math.sin((1 - m.lunge / 0.14) * Math.PI) * 5; x += Math.cos(m.facing) * p; y += Math.sin(m.facing) * p; }
       c.fillStyle = 'rgba(0,0,0,0.35)';
       c.beginPath(); c.ellipse(m.x, m.y + r * 0.8, r, r * 0.3, 0, 0, TAU); c.fill();
-      c.fillStyle = col; c.strokeStyle = 'rgba(0,0,0,0.8)'; c.lineWidth = 1.6;
+      c.fillStyle = col; c.strokeStyle = "rgba(0,0,0,0.8)"; c.lineWidth = 1.1;
       if (m.kind === 'caster') {
         c.beginPath(); c.moveTo(x, y - r * 1.15); c.lineTo(x + r, y + r * 0.7); c.lineTo(x - r, y + r * 0.7); c.closePath(); c.fill(); c.stroke();
         c.fillStyle = 'rgba(255,255,255,0.75)'; c.beginPath(); c.arc(x, y - r * 0.05, r * 0.28, 0, TAU); c.fill();
@@ -1028,7 +1028,7 @@
       }
       if (m.flash > 0) { c.fillStyle = 'rgba(255,255,255,0.5)'; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill(); }
       if (m.hp < m.maxHp - 1) {
-        const bw = 18, bx = m.x - bw / 2, by = m.y - r - 7;
+        const bw = 12, bx = m.x - bw / 2, by = m.y - r - 5;
         c.fillStyle = 'rgba(5,8,12,0.85)'; c.fillRect(bx - 1, by - 1, bw + 2, 4);
         c.fillStyle = m.side ? '#f87171' : '#60a5fa'; c.fillRect(bx, by, bw * Math.max(0, m.hp) / m.maxHp, 2);
       }

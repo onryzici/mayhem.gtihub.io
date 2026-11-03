@@ -32,7 +32,7 @@
   ];
   const SOUL_AT = 3;
   // Koridor bekleme noktaları (mavi taraf; kırmızı taraf aynalanır)
-  const LANE_POS = { top: [515, 125], mid: [520, 415], adc: [505, 700], support: [540, 668], jungle: [420, 420] };
+  const LANE_POS = { top: [600, 125], mid: [615, 415], adc: [640, 700], support: [665, 668], jungle: [540, 410] };
   const LANING_END = 110;
   const CARRY = { marksman: 1, onhit: 1, caster: 1, mage: 1, apAssassin: 1, assassin: 1, battlemage: 1 };
   const SMITE_DMG = 900;
@@ -48,7 +48,7 @@
   const TOWER = { hp: 5000, ad: 300, range: 215, r: 30, gold: 250 };
   const NEXUS = { x: 250, y: 400, hp: 8000, r: 42, gold: 0 };
   // Minyon dalgaları: her 30 sn'de bir, üç koridordan
-  const MINION = { first: 14, every: 30, melee: { hp: 520, ad: 26, range: 26, r: 9 }, caster: { hp: 330, ad: 34, range: 120, r: 8 }, ms: 150, grow: 0.04 };
+  const MINION = { enabled: false, first: 14, every: 30, melee: { hp: 520, ad: 26, range: 30, r: 5.5 }, caster: { hp: 330, ad: 34, range: 124, r: 5 }, ms: 150, grow: 0.04 };
   const LANE_PATHS = {
     top: [[250, 400], [175, 230], [270, 128], [W - 270, 128], [W - 175, 230], [W - 250, 400]],
     mid: [[250, 405], [W - 250, 405]],
@@ -411,8 +411,10 @@
       if (tg && tg !== u && !tg.dead && tg.side === u.side && (tg.isMinion || !tg.isPet)) return true;
       if (this.minions.some(mn => mn.side === u.side && !mn.dead && dist(mn, s) < TOWER.range + s.r + 30)) return true;
       if (s.hp < s.maxHp * 0.1 && u.hp / u.maxHp > 0.5) return true;
-      const fr = this.friendsNear(u.side, s, 450).length, fo = this.foesNear(u.side, s, 650).length;
-      return this.t > LANING_END && fr >= 3 && fo === 0 && u.hp / u.maxHp > 0.6;
+      // savunan yoksa kuleye vurulur; savunan varsa kule altına girilmez
+      if (this.foesNear(u.side, s, 620).some(o => !this.inFountain(o, o.side))) return false;
+      const fr = this.friendsNear(u.side, s, 450).length;
+      return this.t > 40 && (fr >= 2 || u.hp / u.maxHp > 0.75);
     }
     // Kule menzilinin hemen dışında bekleme noktası
     towerEdge(u, s) {
@@ -461,7 +463,7 @@
       }
     }
     updateMinions(dt) {
-      if (this.t >= this.waveAt) { this.waveAt += MINION.every; this.spawnWave(); }
+      if (MINION.enabled && this.t >= this.waveAt) { this.waveAt += MINION.every; this.spawnWave(); }
       for (const m of this.minions) {
         if (m.dead) continue;
         for (const k of ['stun', 'root']) if (m[k] > 0) m[k] -= dt;
@@ -623,7 +625,7 @@
       if (tw && tw.target === u) odds *= 0.55;
       const killable = foes.some(o => o.hp / o.maxHp < 0.22 && dist(o, u) < 320);
       const shotBy = this.structures.find(s => s.isTower && !s.dead && s.target === u);
-      if (shotBy && !killable && (pct < 0.92 || !this.siegeOk(u, shotBy))) { u.mode = 'retreat'; const e = this.towerEdge(u, shotBy); u.goal = { x: e.x + (FOUNTAIN[u.side].x - e.x) * 0.15, y: e.y }; return; }
+      if (shotBy && !killable && (pct < 0.5 || !this.siegeOk(u, shotBy))) { u.mode = 'retreat'; const e = this.towerEdge(u, shotBy); u.goal = { x: e.x + (FOUNTAIN[u.side].x - e.x) * 0.15, y: e.y }; return; }
       if (!killable && (pct < u.rai.retreat * 0.8 || (pct < 0.45 && odds < 0.8 && foes.length) || (pct < 0.6 && odds < 0.45 && foes.length))) {
         u.mode = 'recall'; u.target = null; u.recallAt = 0;
         return;
@@ -637,16 +639,16 @@
           const edge = foes.some(o => pct - o.hp / o.maxHp > 0.22);
           const nf = foes.reduce((a, o) => (dist(o, u) < dist(a, u) ? o : a), foes[0]);
           const lo = this.sideOdds(u.side, { x: (u.x + nf.x) / 2, y: (u.y + nf.y) / 2 }, 330);
-          const trade = !jgl && this.t >= u.tradeAt && lo >= 0.85;
-          if (!(close || killable || edge || lo >= 1.6 || trade)) {
+          const trade = !jgl && this.t >= u.tradeAt && lo >= 0.75;
+          if (!(close || killable || edge || lo >= 1.35 || trade)) {
             if (jgl) { u.mode = null; this.thinkFarm(u, pct); return; }
             const lp = this.lanePos(u);
             u.mode = 'move'; u.goal = { x: lp.x, y: lp.y };
             return;
           }
-          u.tradeAt = this.t + rnd(9, 17);
+          u.tradeAt = this.t + rnd(6, 12);
         }
-        if (odds >= 0.7 || killable || (committed && odds >= 0.5) || pct > 0.8 && odds >= 0.55) { u.mode = 'fight'; return; }
+        if (odds >= 0.62 || killable || (committed && odds >= 0.45) || pct > 0.75 && odds >= 0.5) { u.mode = 'fight'; return; }
         // kötü savaş: geri çekil ama düşmanı vurmaya devam edebilmek için kısa
         u.mode = 'retreat'; u.goal = { x: u.x + (home.x - u.x) * 0.35, y: u.y + (home.y - u.y) * 0.35 };
         return;
@@ -702,7 +704,7 @@
         // minyon kes (destek son vuruşu taşıyıcıya bırakır)
         const mn = u.role !== 'support' || !this.friendsNear(u.side, u, 300).some(a => a.role === 'adc') ? this.farmMinion(u, laneFoes ? 260 : 420) : null;
         if (mn) { u.camp = mn; u.mode = dist(u, mn) < this.rangePx(u) + u.r + mn.r + 20 ? 'camp' : 'move'; u.goal = { x: mn.x, y: mn.y }; return; }
-        if (tgt && (!laneFoes || this.t > LANING_END) && this.foesNear(u.side, tgt, 650).length === 0 && this.t > 15 && (u.role !== 'support' || this.friendsNear(u.side, tgt, 500).length)) {
+        if (tgt && (!laneFoes || this.t > LANING_END) && !this.foesNear(u.side, tgt, 650).some(o => !this.inFountain(o, o.side)) && this.t > 15 && (u.role !== 'support' || this.friendsNear(u.side, tgt, 500).length)) {
           if (!this.siegeOk(u, tgt)) { u.mode = 'move'; u.goal = this.towerEdge(u, tgt); return; }
           u.camp = tgt;
           u.mode = dist(u, tgt) < this.rangePx(u) + u.r + tgt.r + 40 ? 'camp' : 'move';

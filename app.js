@@ -837,7 +837,7 @@
       const b = el.querySelector('.hp b');
       b.style.left = `${Math.max(0, u.hp) / total * 100}%`;
       b.style.width = `${sim.shieldOf(u) / total * 100}%`;
-      el.querySelector('.kda').textContent = `${u.kills}/${u.deaths}/${u.assists} · ${u.cs || 0}`;
+      el.querySelector('.kda').textContent = `${u.kills}/${u.deaths}/${u.assists}`;
       el.querySelector('.cdt').textContent = u.dead && u.reviveAt ? Math.ceil(u.reviveAt - sim.t) : '';
       const ub = el.querySelector('.ultbtn');
       ub.style.setProperty('--p', Math.min(100, u.energy));
@@ -963,13 +963,12 @@
       <tr class="${i === 5 ? 'sep' : ''}">
         <td><div class="who" style="--c:${teams[u.side].color}"><img src="${portrait(u.champ, u.skin)}" data-fb="${icon(u.champ)}"${porStyle(u.skin)} alt=""><span>${esc(u.champ.name)}${u === mvp ? '<span class="mvp-tag">MVP</span>' : ''}</span></div></td>
         <td class="num">${u.kills}/${u.deaths}/${u.assists}</td>
-        <td class="num">${u.cs || 0}</td>
         <td class="num">${fmt(u.dmg)}</td>
         <td style="width:24%"><div class="dbar" style="--c:${teams[u.side].color};width:${u.dmg / maxDmg * 100}%"></div></td>
         <td class="num">${fmt(u.heal)}</td>
         <td class="num">${u.cc.toFixed(1)} sn</td>
       </tr>`).join('');
-    return `<table class="stat-table"><thead><tr><th>Şampiyon</th><th>S/Ö/A</th><th>CS</th><th>Hasar</th><th></th><th>İyileştirme</th><th>Kontrol</th></tr></thead><tbody>${rows}</tbody></table>`;
+    return `<table class="stat-table"><thead><tr><th>Şampiyon</th><th>S/Ö/A</th><th>Hasar</th><th></th><th>İyileştirme</th><th>Kontrol</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
   const overlay = html => { $('overlayHost').innerHTML = `<div class="overlay"><div class="modal">${html}</div></div>`; };
