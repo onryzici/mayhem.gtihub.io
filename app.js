@@ -161,6 +161,8 @@
     $('lnOnline').textContent = `${online}/${AI_TEAMS.length}`;
   }
   const lnTab = tab => {
+    S.lnTab = tab;
+    if (S.champs) updateIntro();
     document.querySelectorAll('#lnTabs button').forEach(b => b.classList.toggle('on', b.dataset.ln === tab));
     document.querySelectorAll('.ln-page').forEach(pg => pg.classList.toggle('on', pg.dataset.page === tab));
   };
@@ -222,7 +224,8 @@
     $('lnBadge').textContent = tag;
     $('lnBadge').style.setProperty('--c', S.team.color);
     $('toDraft').disabled = !(S.champs && name.length >= 2);
-    if (S.champs) $('toDraft').textContent = 'Takımı kur →';
+    if (S.champs) $('toDraft').textContent = S.lnTab === 'ranked' ? 'Kaydet ve devam et ✓' : 'AI turnuvası için takımı kur →';
+    $('formCard').querySelector('.eyebrow').textContent = S.lnTab === 'ranked' ? 'Online profil' : 'Yeni takım';
   }
   $('swatches').innerHTML = COLORS.map((c, i) => `<button type="button" class="swatch${i ? '' : ' on'}" style="--c:${c}" data-c="${c}" aria-label="Renk"></button>`).join('');
   $('swatches').addEventListener('click', e => {
@@ -236,6 +239,8 @@
   $('teamTag').addEventListener('input', () => { S.tagTouched = $('teamTag').value.trim() !== ''; updateIntro(); });
   $('teamName').addEventListener('keydown', e => { if (e.key === 'Enter' && !$('toDraft').disabled) $('toDraft').click(); });
   $('toDraft').addEventListener('click', () => {
+    if (S.lnTab === 'ranked') { rankedFormSubmit(); return; }
+    cancelLobby();
     S.team.name = $('teamName').value.trim();
     S.team.tag = ($('teamTag').value.trim() || autoTag(S.team.name)).toLocaleUpperCase('tr');
     S.team.roster = [];
@@ -1165,14 +1170,32 @@
   const MM = { state: 'idle', since: 0, seen: new Map(), rooms: new Map(), pending: null, timer: null, code: '' };
   const meCard = () => ({ name: S.team.name, tag: S.team.tag, color: S.team.color, lp: PROFILE.lp });
   const mmWindow = () => Math.min(1400, 150 + 30 * (Date.now() - MM.since) / 1000);
-  function needTeam() {
-    if (!S.team.name) {
-      const name = $('teamName').value.trim();
-      if (name.length < 2) { lnTab('home'); goForm(); rkStatus('Önce sağdaki panelden takım adını yaz.'); return true; }
-      S.team.name = name;
-      S.team.tag = ($('teamTag').value.trim() || autoTag(name)).toLocaleUpperCase('tr');
-    }
-    return false;
+  function saveTeamForm() {
+    const name = $('teamName').value.trim();
+    if (name.length < 2) return false;
+    S.team.name = name;
+    S.team.tag = ($('teamTag').value.trim() || autoTag(name)).toLocaleUpperCase('tr');
+    document.documentElement.style.setProperty('--team', S.team.color);
+    return true;
+  }
+  // Takım adı yoksa Dereceli sekmesinde kalıp sağdaki formu gösterir; kaydedilince istenen işlem sürer
+  function needTeam(after) {
+    if (saveTeamForm() || S.team.name) return false;
+    MM.after = after || null;
+    const f = $('formCard'); f.classList.remove('pulse'); void f.offsetWidth; f.classList.add('pulse');
+    $('teamName').focus();
+    rkStatus('Önce sağdaki panelden takım adını yaz, sonra "Kaydet ve devam et"e bas.');
+    return true;
+  }
+  function cancelLobby() {
+    if (MM.state === 'hosting') pub(`${P}rooms`, { closed: true });
+    if (MM.state === 'queue' || MM.state === 'hosting' || MM.state === 'joining') { MM.state = 'idle'; MM.pending = null; rkStatus(''); rkButtons(); }
+  }
+  function rankedFormSubmit() {
+    if (!saveTeamForm()) { needTeam(MM.after); return; }
+    const f = MM.after; MM.after = null;
+    rkStatus(`Takım kaydedildi: ${esc(S.team.name)}`);
+    if (f) f();
   }
   function rkStatus(t, busy) { $('rkStatus').innerHTML = t ? `${busy ? '<i class="spin"></i>' : ''}${t}` : ''; }
   async function lobbyJoin() {
@@ -1246,7 +1269,7 @@
   }
   $('rkQueue').addEventListener('click', async () => {
     if (MM.state === 'queue') { MM.state = 'idle'; MM.pending = null; rkStatus(''); rkButtons(); return; }
-    if (needTeam()) return;
+    if (needTeam(() => $('rkQueue').click())) return;
     rkStatus('Lobiye bağlanılıyor…', true);
     if (!await lobbyJoin()) return;
     MM.state = 'queue'; MM.since = Date.now(); MM.pending = null;
@@ -1254,7 +1277,7 @@
   });
   $('rkHost').addEventListener('click', async () => {
     if (MM.state === 'hosting') { pub(`${P}rooms`, { closed: true }); MM.state = 'idle'; rkStatus(''); rkButtons(); return; }
-    if (needTeam()) return;
+    if (needTeam(() => $('rkHost').click())) return;
     rkStatus('Lobiye bağlanılıyor…', true);
     if (!await lobbyJoin()) return;
     MM.state = 'hosting';
@@ -1263,7 +1286,7 @@
     rkButtons(); mmTick();
   });
   async function joinRoom(hostId, code) {
-    if (needTeam()) return;
+    if (needTeam(() => joinRoom(hostId, code))) return;
     if (!await lobbyJoin()) return;
     if (!hostId) {
       rkStatus('Oda aranıyor…', true);
