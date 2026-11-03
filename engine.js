@@ -3,7 +3,7 @@
   const D = root.MayhemData;
   const W = 1400, H = 800, LEVEL = 18;
   const REALM = { x: W / 2, y: -700, r: 170 };
-  const RANGE_SCALE = 0.38, MS_SCALE = 0.5, HP_MULT = 4.0;
+  const RANGE_SCALE = 0.38, MS_SCALE = 0.5, HP_MULT = 2.2;
   const TAU = Math.PI * 2;
   // Harita: 5 dakikalık maç, üsler, orman kampları ve destansı canavarlar
   const GAME_LEN = 300;
@@ -34,7 +34,7 @@
   }
   // Kuleler (mavi taraf; kırmızı aynalanır) ve Nexus
   const TOWER_DEFS = [{ lane: 'top', x: 330, y: 125 }, { lane: 'mid', x: 360, y: 425 }, { lane: 'adc', x: 395, y: 700 }];
-  const TOWER = { hp: 5000, ad: 460, range: 215, r: 30, gold: 250 };
+  const TOWER = { hp: 5000, ad: 300, range: 215, r: 30, gold: 250 };
   const NEXUS = { x: 250, y: 400, hp: 8000, r: 42, gold: 0 };
   const LANE_OF = { top: 'top', mid: 'mid', adc: 'adc', support: 'adc', jungle: 'mid' };
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -345,6 +345,9 @@
       return o.hp / o.maxHp < 0.22 && u.hp / u.maxHp > 0.55;
     }
     safe(o) { return !this.inFountain(o, o.side); }
+    baseDist(o, side) { return dist(o, FOUNTAIN[side]); }
+    // Üssüne çekilen rakip kovalanmaz (yalnızca ölmek üzereyse ve dibindeyse)
+    chaseOk(u, o) { return this.baseDist(o, o.side) > 430 || (o.hp / o.maxHp < 0.15 && dist(u, o) < 180 && this.baseDist(o, o.side) > FOUNTAIN_R + 30); }
     lanePos(u) {
       const p = LANE_POS[u.role] || LANE_POS.mid;
       return { x: u.side ? W - p[0] : p[0], y: p[1] };
@@ -438,15 +441,18 @@
         else return;
       }
       const engageR = (u.ranged ? 430 : 380) + (u.cls === 'assassin' || u.cls === 'engage' || u.cls === 'apAssassin' ? 70 : 0);
-      const foes = this.enemiesOf(u).filter(o => !o.isPet && dist(o, u) < engageR && !this.inFountain(o, o.side) && this.diveOk(u, o));
+      const foes = this.enemiesOf(u).filter(o => !o.isPet && dist(o, u) < engageR && !this.inFountain(o, o.side) && this.diveOk(u, o) && this.chaseOk(u, o));
       let odds = this.odds(u, 600);
+      // ev avantajı: rakip üssünde savaş kötü, kendi üssünde iyi
+      if (this.baseDist(u, 1 - u.side) < 520) odds *= 0.6;
+      if (this.baseDist(u, u.side) < 520) odds *= 1.25;
       // düşman kulesinin hedefindeysek savaş daha kötü
       const tw = this.towerCovering(u, 1 - u.side);
       if (tw && tw.target === u) odds *= 0.55;
       const killable = foes.some(o => o.hp / o.maxHp < 0.22 && dist(o, u) < 320);
       const shotBy = this.structures.find(s => s.isTower && !s.dead && s.target === u);
       if (shotBy && pct < 0.6 && !killable) { u.mode = 'retreat'; u.goal = { x: u.x + (u.x - shotBy.x) * 1.5 + (FOUNTAIN[u.side].x - u.x) * 0.3, y: u.y + (u.y - shotBy.y) * 0.8 }; return; }
-      if (!killable && (pct < u.rai.retreat || (pct < 0.45 && odds < 0.8 && foes.length) || (pct < 0.6 && odds < 0.45 && foes.length))) {
+      if (!killable && (pct < u.rai.retreat * 0.8 || (pct < 0.45 && odds < 0.8 && foes.length) || (pct < 0.6 && odds < 0.45 && foes.length))) {
         u.mode = 'recall'; u.target = null; u.recallAt = 0;
         return;
       }
@@ -476,10 +482,10 @@
       // yardıma koş: yakındaki dost çatışmada ve kazanılabilir
       let help = null, hd = (u.role === 'jungle' ? 950 : u.role === 'support' ? 620 : this.t < LANING_END ? 430 : 700) * u.rai.help;
       for (const a of this.alliesOf(u)) {
-        if (a === u || a.realm || this.inFountain(a, a.side)) continue;
+        if (a === u || a.realm || this.inFountain(a, a.side) || this.baseDist(a, 1 - u.side) < 450) continue;
         const d = dist(a, u);
         if (d > hd) continue;
-        const near = this.enemiesOf(a).filter(o => !o.isPet && dist(o, a) < 360);
+        const near = this.enemiesOf(a).filter(o => !o.isPet && dist(o, a) < 360 && this.chaseOk(u, o));
         if (!near.length) continue;
         if (this.odds(a, 650) + this.strength(u) * 0.5 < 0.55 && pct < 0.6) continue;
         help = near[0]; hd = d;
@@ -503,7 +509,7 @@
       if (u.role === 'jungle') {
         let gank = null, gd = 950;
         for (const o of this.enemiesOf(u)) {
-          if (o.isPet || o.realm || this.inFountain(o, o.side) || o.hp / o.maxHp > 0.6) continue;
+          if (o.isPet || o.realm || !this.chaseOk(u, o) || o.hp / o.maxHp > 0.6) continue;
           const d = dist(o, u);
           if (d < gd && this.sideOdds(u.side, o, 600, this.strength(u)) > 1.25) { gd = d; gank = o; }
         }
@@ -928,7 +934,7 @@
         if (allies.length) return allies.sort((a, b) => dist(u, a) - dist(u, b))[0];
       }
       const leash = u.isPet ? 900 : 640;
-      const ok = o => !o.isMonster && !this.inFountain(o, o.side) && dist(u, o) < leash && (u.isPet || this.diveOk(u, o));
+      const ok = o => !o.isMonster && !this.inFountain(o, o.side) && dist(u, o) < leash && (u.isPet || (this.diveOk(u, o) && this.chaseOk(u, o)));
       if (u.target && !u.target.dead && !u.target.isMonster && this.targetable(u.target) && this.sameRealm(u, u.target) && u.target.side !== u.side && u.retarget > 0 && ok(u.target)) return u.target;
       u.retarget = 0.6;
       const foes = this.enemiesOf(u).filter(ok);
@@ -2590,7 +2596,7 @@
         if (best) killer = best;
       }
       if (t.st.fx.ga && !t.used.ga) { t.used.ga = 1; t.reviveAt = this.t + 4; t.reviveHp = 0.5; this.emit({ t: 'itemProc', u: t, id: 3026 }); }
-      else { t.reviveAt = this.t + 18 + this.t * 0.07; t.respawnHome = true; }
+      else { t.reviveAt = this.t + 12 + this.t * 0.04; t.respawnHome = true; }
       if (!killer.isMonster && killer.side !== t.side) {
         this.gold[killer.side] += 300;
         // buffları katile geçer
