@@ -220,7 +220,7 @@
     $('pvBadge').style.setProperty('--c', S.team.color);
     $('teamPreview').style.setProperty('--pc', S.team.color);
     $('pvName').textContent = name || 'Takımın';
-    $('lnName').textContent = typeof ACC !== 'undefined' && ACC.user ? ACC.list[ACC.user].user : 'Misafir · Giriş yap';
+    $('lnName').textContent = typeof ACC !== 'undefined' && ACC.user ? ACC.name : (ACC.ready ? 'Misafir · Giriş yap' : 'Bağlanıyor…');
     $('lnBadge').textContent = tag;
     $('lnBadge').style.setProperty('--c', S.team.color);
     $('toDraft').disabled = !(S.champs && name.length >= 2);
@@ -1096,19 +1096,36 @@
     pr.solo = pr.solo || { tours: 0, titles: 0, best: 3 };
     return pr;
   }
-  // ---------- hesaplar (yerel) ----------
-  // Hesaplar bu tarayıcıda saklanır; şifre PBKDF2 ile tuzlanıp özetlenir, açık metin tutulmaz
-  const ACC = { list: {}, user: null };
+  // ---------- hesaplar (Firebase: Auth + Firestore) ----------
+  // Kullanıcı adı herkes arasında benzersiz; LP, geçmiş ve takım sunucuda tutulur. Eski yerel hesaplar ilk girişte buluta taşınır.
+  const FB_CFG = { apiKey: 'AIzaSyCU_jIVX8qh-lXwdnZ-E6wXBKO18-9aq3Q', authDomain: 'mayhem-ligi.firebaseapp.com', projectId: 'mayhem-ligi', storageBucket: 'mayhem-ligi.firebasestorage.app', messagingSenderId: '572556858922', appId: '1:572556858922:web:0f6961f5d9cebe1b3dd553' };
+  const FB = (() => { try { if (!window.firebase) return null; const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(FB_CFG); return { auth: app.auth(), db: app.firestore() }; } catch (e) { console.warn('firebase', e); return null; } })();
+  const ACC = { list: {}, user: null, name: null, ready: !FB };
   try { ACC.list = JSON.parse(localStorage.getItem('mayhemAccounts') || '{}') || {}; } catch (e) { ACC.list = {}; }
-  try { ACC.user = localStorage.getItem('mayhemSession') || null; } catch (e) {}
-  if (ACC.user && !ACC.list[ACC.user]) ACC.user = null;
   let GUEST = loadProfile();
-  let PROFILE = ACC.user ? ACC.list[ACC.user].profile : GUEST;
-  const saveAccounts = () => { try { localStorage.setItem('mayhemAccounts', JSON.stringify(ACC.list)); } catch (e) {} };
+  let PROFILE = GUEST;
+  const PFIELDS = ['user', 'key', 'lp', 'w', 'l', 'hist', 'solo', 'team', 'id', 'created'];
+  let saveChain = Promise.resolve();
+  function cloudDoc(pr) {
+    const d = {};
+    for (const k of PFIELDS) if (pr[k] !== undefined) d[k] = pr[k];
+    d.lp = Math.max(0, Math.round(d.lp || 0)); d.w = d.w | 0; d.l = d.l | 0;
+    d.hist = (d.hist || []).slice(0, 30).map(h => ({ won: !!h.won, opp: String(h.opp || '').slice(0, 40), d: h.d | 0, at: h.at || 0 }));
+    d.solo = d.solo || { tours: 0, titles: 0, best: 3 };
+    d.team = d.team || null;
+    d.ts = firebase.firestore.FieldValue.serverTimestamp();
+    return d;
+  }
   const saveProfile = () => {
     try {
-      if (ACC.user) { ACC.list[ACC.user].profile = PROFILE; saveAccounts(); }
-      else localStorage.setItem('mayhemProfile', JSON.stringify(PROFILE));
+      if (ACC.user && FB) {
+        const uid = ACC.user, doc = cloudDoc(PROFILE);
+        saveChain = saveChain.then(() => FB.db.collection('users').doc(uid).set(doc)).catch(async e => {
+          console.warn('kayıt', e);
+          // sunucu reddettiyse (hız/LP sınırı) sunucudaki hali geri yükle
+          try { const snap = await FB.db.collection('users').doc(uid).get(); if (snap.exists && ACC.user === uid) { PROFILE = withDefaults(snap.data()); accountChanged(); } } catch (er) {}
+        });
+      } else localStorage.setItem('mayhemProfile', JSON.stringify(PROFILE));
     } catch (e) {}
   };
   saveProfile();
@@ -1123,29 +1140,69 @@
   }
   const userKey = u => u.trim().toLocaleLowerCase('tr');
   const validUser = u => /^[\p{L}\p{N}_. -]{3,16}$/u.test(u.trim());
-  async function register(user, pw, keepGuest) {
+  // Firebase e-posta ister: kullanıcı adından sabit, ASCII bir adres türet
+  const emailFor = async u => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('mhl:' + userKey(u)))).slice(0, 32) + '@mayhemligi.app';
+  const withDefaults = d => ({ lp: START_LP, w: 0, l: 0, hist: [], solo: { tours: 0, titles: 0, best: 3 }, ...d, solo: d.solo || { tours: 0, titles: 0, best: 3 }, hist: d.hist || [] });
+  function fbErr(e) {
+    const c = (e && e.code) || '';
+    if (/email-already-in-use/.test(c)) return 'Bu kullanıcı adı alınmış.';
+    if (/invalid-credential|wrong-password|user-not-found|invalid-login/.test(c)) return 'Kullanıcı adı ya da şifre yanlış.';
+    if (/too-many-requests/.test(c)) return 'Çok fazla deneme. Biraz bekleyip tekrar dene.';
+    if (/network/.test(c)) return 'Sunucuya ulaşılamadı. İnternet bağlantını kontrol et.';
+    if (/weak-password/.test(c)) return 'Şifre en az 6 karakter olmalı.';
+    return (e && e.message) || 'Bir şeyler ters gitti.';
+  }
+  const needFB = () => { if (!FB) throw new Error('Hesap sunucusuna ulaşılamadı. Sayfayı yenileyip tekrar dene.'); };
+  async function register(user, pw, keepGuest, base) {
+    needFB();
     const k = userKey(user);
     if (!validUser(user)) throw new Error('Kullanıcı adı 3-16 karakter olmalı (harf, rakam, boşluk, _ . -).');
     if (pw.length < 6) throw new Error('Şifre en az 6 karakter olmalı.');
-    if (ACC.list[k]) throw new Error('Bu kullanıcı adı bu tarayıcıda zaten kayıtlı.');
-    const salt = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    const base = keepGuest ? JSON.parse(JSON.stringify(GUEST)) : { lp: START_LP, w: 0, l: 0, hist: [], solo: { tours: 0, titles: 0, best: 3 } };
-    const profile = { ...base, id: Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4), user: user.trim(), created: Date.now(), team: { name: S.team.name || $('teamName').value.trim(), tag: S.team.tag, color: S.team.color } };
-    ACC.list[k] = { user: user.trim(), salt, hash: await hashPw(pw, salt), profile };
-    if (keepGuest) { GUEST = { ...GUEST, lp: START_LP, w: 0, l: 0, hist: [] }; try { localStorage.setItem('mayhemProfile', JSON.stringify(GUEST)); } catch (e) {} }
-    saveAccounts();
-    loginAs(k);
+    if ((await FB.db.collection('usernames').doc(k).get()).exists) throw new Error('Bu kullanıcı adı alınmış.');
+    let cred;
+    try { cred = await FB.auth.createUserWithEmailAndPassword(await emailFor(user), pw); } catch (e) { throw new Error(fbErr(e)); }
+    const uid = cred.user.uid;
+    const src = base || (keepGuest ? GUEST : { lp: START_LP, w: 0, l: 0, hist: [], solo: { tours: 0, titles: 0, best: 3 } });
+    const profile = withDefaults({ ...JSON.parse(JSON.stringify(src)), id: (src.id && base) ? src.id : Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4), user: user.trim(), key: k, created: (base && base.created) || Date.now(), team: (base && base.team) || { name: S.team.name || $('teamName').value.trim(), tag: S.team.tag, color: S.team.color } });
+    profile.lp = Math.min(profile.lp, 2400);
+    try {
+      const batch = FB.db.batch();
+      batch.set(FB.db.collection('usernames').doc(k), { uid });
+      batch.set(FB.db.collection('users').doc(uid), cloudDoc(profile));
+      await batch.commit();
+    } catch (e) {
+      try { await cred.user.delete(); } catch (er) {}
+      throw new Error('Bu kullanıcı adı alınmış.');
+    }
+    if (keepGuest && !base) { GUEST = { ...GUEST, lp: START_LP, w: 0, l: 0, hist: [] }; try { localStorage.setItem('mayhemProfile', JSON.stringify(GUEST)); } catch (e) {} }
+    await loginAs(uid, profile);
   }
   async function login(user, pw) {
-    const a = ACC.list[userKey(user)];
-    if (!a || await hashPw(pw, a.salt) !== a.hash) throw new Error('Kullanıcı adı ya da şifre yanlış.');
-    loginAs(userKey(user));
+    needFB();
+    try {
+      const cred = await FB.auth.signInWithEmailAndPassword(await emailFor(user), pw);
+      await loginAs(cred.user.uid);
+    } catch (e) {
+      // eski yerel hesap mı? şifresi doğruysa buluta taşı
+      const a = ACC.list[userKey(user)];
+      if (/invalid-credential|user-not-found|invalid-login/.test((e && e.code) || '') && a && await hashPw(pw, a.salt) === a.hash) {
+        await register(a.user, pw, false, a.profile);
+        delete ACC.list[userKey(user)];
+        try { localStorage.setItem('mayhemAccounts', JSON.stringify(ACC.list)); } catch (er) {}
+        return;
+      }
+      throw new Error(e && e.code ? fbErr(e) : (e.message || fbErr(e)));
+    }
   }
-  function loginAs(k) {
+  async function loginAs(uid, profile) {
     cancelLobby();
-    ACC.user = k;
-    try { localStorage.setItem('mayhemSession', k); } catch (e) {}
-    PROFILE = ACC.list[k].profile;
+    if (!profile) {
+      const snap = await FB.db.collection('users').doc(uid).get();
+      if (!snap.exists) throw new Error('Hesap verisi bulunamadı.');
+      profile = snap.data();
+    }
+    ACC.user = uid; ACC.name = profile.user;
+    PROFILE = withDefaults(profile);
     applyTeam();
     accountChanged();
   }
@@ -1157,11 +1214,10 @@
       document.querySelectorAll('.swatch').forEach(x => x.classList.toggle('on', x.dataset.c === S.team.color));
     }
   }
-  if (ACC.user) applyTeam();
   function logout() {
     cancelLobby();
-    ACC.user = null;
-    try { localStorage.removeItem('mayhemSession'); } catch (e) {}
+    ACC.user = null; ACC.name = null;
+    if (FB) FB.auth.signOut().catch(() => {});
     PROFILE = GUEST;
     accountChanged();
   }
@@ -1169,45 +1225,46 @@
     renderRanked();
     if (S.champs) updateIntro();
   }
-  // Hesap kodu: hesabı başka cihaza taşımak için (şifre özeti dahil, şifre değil)
-  const exportCode = () => { const a = ACC.list[ACC.user]; return 'MHL1.' + btoa(unescape(encodeURIComponent(JSON.stringify(a)))); };
-  function importCode(code) {
-    let a;
-    try { a = JSON.parse(decodeURIComponent(escape(atob(code.trim().replace(/^MHL1\./, ''))))); } catch (e) { throw new Error('Hesap kodu okunamadı.'); }
-    if (!a || !a.user || !a.hash || !a.salt || !a.profile) throw new Error('Hesap kodu geçersiz.');
-    const k = userKey(a.user);
-    const cur = ACC.list[k];
-    if (cur && cur.salt !== a.salt) throw new Error('Bu tarayıcıda aynı adla başka bir hesap var.');
-    ACC.list[k] = a;
-    saveAccounts();
-    return a.user;
+  // Oturum: Firebase tarayıcıda hatırlar; sayfa açılınca geri yükle
+  if (FB) {
+    try { localStorage.removeItem('mayhemSession'); } catch (e) {}
+    FB.auth.onAuthStateChanged(async u => {
+      if (u && ACC.user !== u.uid) { try { await loginAs(u.uid); } catch (e) { console.warn('oturum', e); } }
+      ACC.ready = true;
+      if (S.champs) updateIntro();
+    });
+  }
+  // Liderlik tablosu
+  async function loadBoard() {
+    const el = $('rkBoard'); if (!el || !FB) return;
+    try {
+      const q = await FB.db.collection('users').orderBy('lp', 'desc').limit(15).get();
+      const rows = q.docs.map((d, i) => { const x = d.data(), r = rankOf(x.lp); return `<div class="rk-b${d.id === ACC.user ? ' me' : ''}"><em>${i + 1}</em><img src="${emblem(r.key)}" alt=""><b>${esc(x.user)}</b><span>${rankLabel(x.lp)} · ${r.lp} LP</span><small>${x.w}G ${x.l}M</small></div>`; });
+      el.innerHTML = `<div class="eyebrow" style="margin-bottom:6px">Liderlik tablosu</div>${rows.join('') || '<div class="muted" style="font-size:13px">Henüz kimse yok. İlk sen ol.</div>'}`;
+    } catch (e) { el.innerHTML = ''; }
   }
   function accountModal(tab = 'login', msg = '') {
     if (ACC.user) {
-      const a = ACC.list[ACC.user], r = rankOf(PROFILE.lp);
+      const r = rankOf(PROFILE.lp);
       overlay(`<div class="acc">
         <div class="eyebrow">Hesabım</div>
-        <div class="acc-head"><img src="${emblem(r.key)}" alt=""><div><h2>${esc(a.user)}</h2><span class="muted">${rankLabel(PROFILE.lp)} · ${r.lp} LP · ${PROFILE.w}G ${PROFILE.l}M</span><br><span class="muted" style="font-size:12px">Kayıt: ${new Date(PROFILE.created || Date.now()).toLocaleDateString('tr-TR')}</span></div></div>
-        <label class="field"><span>Hesap kodu · başka cihaza taşımak için</span><textarea class="input acc-code" id="accCode" readonly>${esc(exportCode())}</textarea></label>
-        <div class="acc-row"><button class="btn ghost" id="accCopy">Kodu kopyala</button><button class="btn ghost" id="accOut">Çıkış yap</button><button class="btn" id="accClose">Kapat</button></div>
+        <div class="acc-head"><img src="${emblem(r.key)}" alt=""><div><h2>${esc(ACC.name)}</h2><span class="muted">${rankLabel(PROFILE.lp)} · ${r.lp} LP · ${PROFILE.w}G ${PROFILE.l}M</span><br><span class="muted" style="font-size:12px">Kayıt: ${new Date(PROFILE.created || Date.now()).toLocaleDateString('tr-TR')}</span></div></div>
+        <p class="rk-note">Hesabın sunucuda. Başka bir cihazda aynı kullanıcı adı ve şifreyle giriş yapman yeterli.</p>
+        <div class="acc-row"><button class="btn ghost" id="accOut">Çıkış yap</button><button class="btn" id="accClose">Kapat</button></div>
         ${msg ? `<div class="acc-msg">${esc(msg)}</div>` : ''}
       </div>`);
       return;
     }
-    const others = Object.values(ACC.list).map(a => a.user);
+    if (tab === 'import') tab = 'login';
     overlay(`<div class="acc">
-      <div class="acc-tabs"><button class="${tab === 'login' ? 'on' : ''}" data-acc-tab="login">Giriş yap</button><button class="${tab === 'register' ? 'on' : ''}" data-acc-tab="register">Kayıt ol</button><button class="${tab === 'import' ? 'on' : ''}" data-acc-tab="import">Hesap kodu</button></div>
-      ${tab === 'import' ? `
-        <label class="field"><span>Başka cihazdan aldığın hesap kodunu yapıştır</span><textarea class="input acc-code" id="accImport" placeholder="MHL1.…"></textarea></label>
-        <div class="acc-row"><button class="btn ghost" id="accClose">Vazgeç</button><button class="btn" id="accDoImport">İçe aktar</button></div>` : `
-        <label class="field"><span>Kullanıcı adı</span><input class="input" id="accUser" maxlength="16" autocomplete="username" ${others.length && tab === 'login' ? `list="accUsers"` : ''}></label>
-        ${others.length ? `<datalist id="accUsers">${others.map(u => `<option value="${esc(u)}">`).join('')}</datalist>` : ''}
+      <div class="acc-tabs"><button class="${tab === 'login' ? 'on' : ''}" data-acc-tab="login">Giriş yap</button><button class="${tab === 'register' ? 'on' : ''}" data-acc-tab="register">Kayıt ol</button></div>
+        <label class="field"><span>Kullanıcı adı</span><input class="input" id="accUser" maxlength="16" autocomplete="username"></label>
         <label class="field"><span>Şifre</span><input class="input" id="accPw" type="password" autocomplete="${tab === 'login' ? 'current-password' : 'new-password'}"></label>
         ${tab === 'register' ? `<label class="field"><span>Şifre (tekrar)</span><input class="input" id="accPw2" type="password" autocomplete="new-password"></label>
         ${GUEST.w + GUEST.l > 0 ? `<label class="acc-check"><input type="checkbox" id="accKeep" checked> Misafir olarak kazandığım ${rankLabel(GUEST.lp)} derecesini hesaba taşı</label>` : ''}` : ''}
-        <div class="acc-row"><button class="btn ghost" id="accClose">Vazgeç</button><button class="btn" id="accGo">${tab === 'login' ? 'Giriş yap' : 'Hesap oluştur'}</button></div>`}
+        <div class="acc-row"><button class="btn ghost" id="accClose">Vazgeç</button><button class="btn" id="accGo">${tab === 'login' ? 'Giriş yap' : 'Hesap oluştur'}</button></div>
       ${msg ? `<div class="acc-msg">${esc(msg)}</div>` : ''}
-      <p class="rk-note">Hesaplar bu tarayıcıda saklanır. Başka cihazda oynamak için "Hesabım"dan hesap kodunu alıp orada içe aktar.</p>
+      <p class="rk-note">${FB ? 'Hesabın sunucuda saklanır; her cihazdan giriş yapabilirsin. Kullanıcı adları herkes arasında benzersiz.' : 'Hesap sunucusuna ulaşılamadı. Sayfayı yenileyip tekrar dene.'}</p>
     </div>`);
     const f = $('accUser'); if (f) f.focus();
   }
@@ -1215,8 +1272,6 @@
     const t = e.target.closest('[data-acc-tab]'); if (t) { accountModal(t.dataset.accTab); return; }
     if (e.target.closest('#accClose')) { closeOverlay(); return; }
     if (e.target.closest('#accOut')) { logout(); closeOverlay(); return; }
-    if (e.target.closest('#accCopy')) { const ta = $('accCode'); ta.select(); try { await navigator.clipboard.writeText(ta.value); } catch (er) { document.execCommand('copy'); } accountModal('login', 'Hesap kodu kopyalandı.'); return; }
-    if (e.target.closest('#accDoImport')) { try { const u = importCode($('accImport').value); accountModal('login', `${u} hesabı eklendi. Şimdi şifrenle giriş yap.`); } catch (er) { accountModal('import', er.message); } return; }
     if (e.target.closest('#accGo')) {
       const reg = !!$('accPw2');
       const user = $('accUser').value, pw = $('accPw').value;
@@ -1231,7 +1286,7 @@
   });
   $('overlayHost').addEventListener('keydown', e => { if (e.key === 'Enter' && $('accGo') && e.target.matches('input')) $('accGo').click(); });
   document.querySelector('.ln-prof').addEventListener('click', () => accountModal());
-  document.addEventListener('click', e => { if (e.target.closest('#rkLogin')) accountModal(Object.keys(ACC.list).length ? 'login' : 'register'); });
+  document.addEventListener('click', e => { if (e.target.closest('#rkLogin')) accountModal('login'); });
   document.querySelector('.ln-prof').style.cursor = 'pointer';
   // Elo tabanlı LP: güçlü rakibi yenmek daha çok kazandırır
   function lpDelta(me, opp, won) {
@@ -1247,7 +1302,9 @@
     return 'Henüz turnuva yok';
   }
 
+  let boardAt = 0;
   function renderRanked() {
+    if (Date.now() - boardAt > 4000) { boardAt = Date.now(); loadBoard(); }
     const r = rankOf(PROFILE.lp);
     $('rkEmblem').src = emblem(r.key);
     $('rkTier').textContent = rankLabel(PROFILE.lp);
@@ -1258,7 +1315,7 @@
     $('rkSolo').textContent = `Tek oyunculu: ${soloBadge()} · ${PROFILE.solo.tours} turnuva`;
     $('rkHist').innerHTML = PROFILE.hist.slice(0, 8).map(h => `<div class="rk-h ${h.won ? 'w' : 'l'}"><b>${h.won ? 'Zafer' : 'Bozgun'}</b><span>${esc(h.opp)}</span><em>${h.d > 0 ? '+' : ''}${h.d} LP</em></div>`).join('') || '<div class="muted" style="font-size:13px">Henüz dereceli maç yok.</div>';
     $('lnRank').src = emblem(r.key);
-    $('rkUser').innerHTML = ACC.user ? `<b>${esc(ACC.list[ACC.user].user)}</b> olarak oynuyorsun` : 'Misafirsin · <button type="button" class="linkbtn" id="rkLogin">Giriş yap / kayıt ol</button>';
+    $('rkUser').innerHTML = ACC.user ? `<b>${esc(ACC.name)}</b> olarak oynuyorsun` : 'Misafirsin · <button type="button" class="linkbtn" id="rkLogin">Giriş yap / kayıt ol</button>';
     $('lnRankTxt').textContent = `${rankLabel(PROFILE.lp)} · ${r.lp} LP`;
   }
 
@@ -1304,7 +1361,7 @@
 
   // ---------- 9. eşleşme ve odalar ----------
   const MM = { state: 'idle', since: 0, seen: new Map(), rooms: new Map(), pending: null, timer: null, code: '' };
-  const meCard = () => ({ name: S.team.name, tag: S.team.tag, color: S.team.color, lp: PROFILE.lp, user: ACC.user ? ACC.list[ACC.user].user : 'Misafir', pid: PROFILE.id });
+  const meCard = () => ({ name: S.team.name, tag: S.team.tag, color: S.team.color, lp: PROFILE.lp, user: ACC.user ? ACC.name : 'Misafir', pid: PROFILE.id });
   const mmWindow = () => Math.min(1400, 150 + 30 * (Date.now() - MM.since) / 1000);
   function saveTeamForm() {
     const name = $('teamName').value.trim();
@@ -1407,7 +1464,7 @@
   }
   $('rkQueue').addEventListener('click', async () => {
     if (MM.state === 'queue') { MM.state = 'idle'; MM.pending = null; rkStatus(''); rkButtons(); return; }
-    if (!ACC.user) { MM.afterLogin = () => $('rkQueue').click(); accountModal(Object.keys(ACC.list).length ? 'login' : 'register', 'Dereceli oynamak için giriş yap ya da kayıt ol. LP hesabına yazılır.'); return; }
+    if (!ACC.user) { MM.afterLogin = () => $('rkQueue').click(); accountModal('login', 'Dereceli oynamak için giriş yap ya da kayıt ol. LP hesabına yazılır.'); return; }
     if (needTeam(() => $('rkQueue').click())) return;
     rkStatus('Lobiye bağlanılıyor…', true);
     if (!await lobbyJoin()) return;

@@ -145,6 +145,14 @@
     .rk-lp { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-family: var(--head); font-weight: 700; color: var(--gold-2); }
     .rk-lp i { flex: 1; height: 6px; background: #1e2a36; position: relative; overflow: hidden; }
     .rk-lp i::after { content: ''; position: absolute; inset: 0 auto 0 0; width: var(--v, 0%); background: linear-gradient(90deg, #785a28, #f0d48a); transition: width .6s; }
+    .rk-board { margin-top: 18px; display: grid; gap: 4px; text-align: left; }
+    .rk-b { display: grid; grid-template-columns: 22px 26px 1fr auto; grid-template-rows: auto auto; column-gap: 8px; align-items: center; padding: 6px 10px; font-size: 13px; background: rgba(255,255,255,.03); border-left: 3px solid transparent; }
+    .rk-b.me { border-left-color: #c8aa6e; background: rgba(200,170,110,.08); }
+    .rk-b em { grid-row: span 2; font-style: normal; color: #c8aa6e; font-family: var(--head); text-align: center; }
+    .rk-b img { grid-row: span 2; width: 26px; height: 26px; object-fit: contain; }
+    .rk-b b { font-family: var(--head); color: #f0e6d2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rk-b span { font-size: 12px; color: #a09b8c; grid-column: 3; }
+    .rk-b small { grid-row: 1 / span 2; grid-column: 4; color: #a09b8c; font-size: 12px; }
     .rk-hist { margin-top: 16px; display: grid; gap: 6px; text-align: left; }
     .rk-h { display: grid; grid-template-columns: 66px 1fr auto; gap: 8px; align-items: center; padding: 7px 10px; font-size: 13px; border-left: 3px solid; background: rgba(255,255,255,.03); }
     .rk-h.w { border-color: #0acf83; } .rk-h.l { border-color: #f87171; }
@@ -643,6 +651,7 @@
                 <div class="muted" id="rkWL" style="font-size:13px;margin-top:8px"></div>
                 <div class="chip gold" id="rkSolo" style="margin-top:12px;white-space:normal"></div>
                 <div class="rk-hist" id="rkHist"></div>
+                <div class="rk-board" id="rkBoard"></div>
               </div>
               <div class="rk-act">
                 <div class="rk-box">
@@ -804,10 +813,13 @@
   <div id="overlayHost"></div>
 
   <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
-  <script src="pro.js?v=1793693779"></script>
-  <script src="data.js?v=1793693779"></script>
-  <script src="engine.js?v=1793693779"></script>
-  <script src="render.js?v=1793693779"></script>
-  <script src="app.js?v=1793693779"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+  <script src="pro.js?v=1793705293"></script>
+  <script src="data.js?v=1793705293"></script>
+  <script src="engine.js?v=1793705293"></script>
+  <script src="render.js?v=1793705293"></script>
+  <script src="app.js?v=1793705293"></script>
 </body>
 </html>
