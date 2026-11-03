@@ -823,7 +823,8 @@
     $('kB').textContent = sim.kills[1 - G.mySide];
     const t = Math.min(M.GAME_LEN, Math.floor(sim.t));
     $('sbClock').textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')} / ${Math.floor(M.GAME_LEN / 60)}:00`;
-    const obj = s => `<i style="--oc:#94a3b8" title="Yıkılan kule">${sim.towersDown[s]}</i><i style="--oc:#f97316" title="Ejder">${sim.drakes[s]}</i><i style="--oc:#a855f7" title="Baron">${sim.barons[s]}</i><i style="--oc:#facc15" title="Altın">${(sim.gold[s] / 1000).toFixed(1)}k</i>`;
+    const drk = s => (sim.drakeTypes ? sim.drakeTypes[s] : []).map(k => { const d = M.DRAKES.find(x => x.k === k); return `<em class="drk" style="--dc:${d.color}" title="${d.name}"></em>`; }).join('') + (sim.souls && sim.souls[s] ? `<em class="drk soul" style="--dc:${M.DRAKES.find(x => x.k === sim.souls[s]).color}" title="${M.DRAKES.find(x => x.k === sim.souls[s]).sname}">✦</em>` : '');
+    const obj = s => `<i style="--oc:#94a3b8" title="Yıkılan kule">${sim.towersDown[s]}</i><i style="--oc:#f97316" title="Ejder">${sim.drakes[s]}${drk(s)}</i><i style="--oc:#a855f7" title="Baron">${sim.barons[s]}</i><i style="--oc:#facc15" title="Altın">${(sim.gold[s] / 1000).toFixed(1)}k</i>`;
     $('oA').innerHTML = obj(G.mySide);
     $('oB').innerHTML = obj(1 - G.mySide);
     for (const u of sim.units) {
@@ -836,7 +837,7 @@
       const b = el.querySelector('.hp b');
       b.style.left = `${Math.max(0, u.hp) / total * 100}%`;
       b.style.width = `${sim.shieldOf(u) / total * 100}%`;
-      el.querySelector('.kda').textContent = `${u.kills}/${u.deaths}/${u.assists}`;
+      el.querySelector('.kda').textContent = `${u.kills}/${u.deaths}/${u.assists} · ${u.cs || 0}`;
       el.querySelector('.cdt').textContent = u.dead && u.reviveAt ? Math.ceil(u.reviveAt - sim.t) : '';
       const ub = el.querySelector('.ultbtn');
       ub.style.setProperty('--p', Math.min(100, u.energy));
@@ -887,9 +888,12 @@
     multi[killer.uid] = m;
     const ace = sim.champs(victim.side).every(u => u.dead);
     const names = ['', '', 'ÇİFTE SKOR!', 'ÜÇLÜ SKOR!', 'DÖRTLÜ SKOR!', 'PENTAKILL!'];
+    const sprees = { 3: 'KATLİAM YAPIYOR!', 4: 'KUDURMUŞ!', 5: 'DURDURULAMAZ!', 6: 'TANRI GİBİ!', 7: 'EFSANEVİ!' };
     if (m.n >= 2) announce(names[Math.min(5, m.n)], killer.champ.name, col);
+    else if (e.shutdown) announce('SONLANDIRMA!', `${killer.champ.name} · +${300 + e.shutdown} altın`, col);
     else if (e.first) announce('İLK KAN!', `${killer.champ.name} → ${victim.champ.name}`, col);
     else if (ace) announce('AS!', sideTeam(killer.side).name, col);
+    else if (e.spree >= 3) announce(sprees[Math.min(7, e.spree)], killer.champ.name, col);
   }
 
   function onObjective(e) {
@@ -899,9 +903,16 @@
       announce(e.kind === 'nexus' ? 'NEXUS YIKILDI!' : 'KULE YIKILDI', `${team.name}${e.u ? ' · ' + e.u.champ.name : ''}`, team.color);
       return;
     }
-    if (e.kind === 'spawn') { if (m.key === 'baron') announce('BARON NASHOR', 'Nehrin üstünde uyandı', m.color); else announce('EJDER', 'Nehrin altında belirdi', m.color); return; }
+    if (e.kind === 'spawn') {
+      if (m.key === 'baron') announce('BARON NASHOR', 'Nehrin üstünde uyandı', m.color);
+      else if (m.key === 'herald') announce('VADİNİN ALAMETİ', 'Nehrin üstünde belirdi', m.color);
+      else announce(m.name.toLocaleUpperCase('tr'), 'Nehrin altında belirdi', m.color);
+      return;
+    }
+    if (e.kind === 'despawn') return;
     const team = sideTeam(e.side);
-    announce(m.key === 'baron' ? 'BARON ALINDI!' : 'EJDER ALINDI!', `${team.name} · ${e.u.champ.name}`, team.color);
+    if (e.kind === 'soul') { setTimeout(() => announce(e.soul.sname.toLocaleUpperCase('tr') + '!', `${team.name} ejder ruhunu kazandı`, e.soul.color), 2400); return; }
+    announce(m.key === 'baron' ? 'BARON ALINDI!' : m.key === 'herald' ? 'ALAMET ALINDI!' : `${m.name.toLocaleUpperCase('tr')} ALINDI!`, `${team.name} · ${e.u.champ.name}`, m.key === 'herald' || m.key === 'baron' ? team.color : m.color);
   }
 
   $('hudA').addEventListener('click', e => {
@@ -952,12 +963,13 @@
       <tr class="${i === 5 ? 'sep' : ''}">
         <td><div class="who" style="--c:${teams[u.side].color}"><img src="${portrait(u.champ, u.skin)}" data-fb="${icon(u.champ)}"${porStyle(u.skin)} alt=""><span>${esc(u.champ.name)}${u === mvp ? '<span class="mvp-tag">MVP</span>' : ''}</span></div></td>
         <td class="num">${u.kills}/${u.deaths}/${u.assists}</td>
+        <td class="num">${u.cs || 0}</td>
         <td class="num">${fmt(u.dmg)}</td>
         <td style="width:24%"><div class="dbar" style="--c:${teams[u.side].color};width:${u.dmg / maxDmg * 100}%"></div></td>
         <td class="num">${fmt(u.heal)}</td>
         <td class="num">${u.cc.toFixed(1)} sn</td>
       </tr>`).join('');
-    return `<table class="stat-table"><thead><tr><th>Şampiyon</th><th>S/Ö/A</th><th>Hasar</th><th></th><th>İyileştirme</th><th>Kontrol</th></tr></thead><tbody>${rows}</tbody></table>`;
+    return `<table class="stat-table"><thead><tr><th>Şampiyon</th><th>S/Ö/A</th><th>CS</th><th>Hasar</th><th></th><th>İyileştirme</th><th>Kontrol</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
   const overlay = html => { $('overlayHost').innerHTML = `<div class="overlay"><div class="modal">${html}</div></div>`; };
@@ -1700,12 +1712,64 @@
     overlay(`
       <div class="eyebrow">${OM.ranked ? 'Dereceli' : 'Özel oda'} · ${esc(teams[G.mySide].tag)} ${kills[G.mySide]} - ${kills[1 - G.mySide]} ${esc(teams[1 - G.mySide].tag)}${forfeit ? ' · Rakip ayrıldı' : ''}</div>
       <h2>${won ? '<span class="res-win">ZAFER</span>' : '<span class="res-lose">BOZGUN</span>'}</h2>
-      ${OM.ranked ? `<div class="lp-res"><img src="${emblem(ra.key)}" alt=""><div><b>${rankLabel(PROFILE.lp)} · ${ra.lp} LP</b><span class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '+' : ''}${d} LP</span>${promo ? '<em class="up">Terfi! 🎉</em>' : demo ? '<em class="down">Düşüş</em>' : ''}</div></div>` : ''}
+      ${OM.ranked ? `<div class="lp-res"><img src="${emblem(ra.key)}" alt=""><div><b>${rankLabel(PROFILE.lp)} · <span class="lp-count" id="lpCount">${rb.lp}</span> LP</b><span class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '+' : ''}${d} LP</span>${promo ? '<em class="up">Terfi! 🎉</em>' : demo ? '<em class="down">Düşüş</em>' : ''}<div class="lp-track"><i id="lpFill" style="width:${promo || demo ? (d > 0 ? 0 : 100) : rb.lp}%"></i></div></div></div>` : ''}
       ${sim ? statTable(sim, teams) : ''}
       <div class="center-actions"><button class="btn" id="toLobby">Lobiye dön</button></div>`);
     leaveMatch();
     renderRanked();
-    if (won) confetti();
+    if (OM && OM.ranked) animateLp(promo || demo ? (d > 0 ? 0 : 100) : rb.lp, ra.lp);
+    if (promo || demo) setTimeout(() => rankCinematic(rb, ra, promo), 900);
+    else if (won) confetti();
+  }
+  // LP çubuğu ve sayaç: eski değerden yeni değere akar
+  function animateLp(from, to) {
+    const fill = $('lpFill'), num = $('lpCount');
+    if (!fill || !num) return;
+    const t0 = performance.now() + 350, dur = 1100;
+    const tick = now => {
+      const k = Math.max(0, Math.min(1, (now - t0) / dur)), e = 1 - Math.pow(1 - k, 3);
+      const v = from + (to - from) * e;
+      fill.style.width = `${Math.max(0, Math.min(100, v))}%`; num.textContent = Math.round(v);
+      if (k < 1 && document.body.contains(fill)) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+  window.MHLdebug = { rankFx: (from, to, up) => rankCinematic(rankOf(from), rankOf(to), up) };
+  const TIER_COL = { iron: '#8c8c8c', bronze: '#c0773f', silver: '#b8c4cf', gold: '#f2c14e', platinum: '#4fd1c5', emerald: '#34d399', diamond: '#7aa2ff', master: '#c084fc', grandmaster: '#f87171', challenger: '#fde68a' };
+  // Terfi / düşüş sinematiği
+  function rankCinematic(rb, ra, up) {
+    document.querySelectorAll('.rankfx').forEach(x => x.remove());
+    const col = TIER_COL[ra.key] || '#c8aa6e';
+    const el = document.createElement('div');
+    el.className = `rankfx ${up ? 'up' : 'down'}`;
+    el.style.setProperty('--rc', col);
+    const tierChange = ra.tier !== rb.tier;
+    el.innerHTML = `
+      <div class="rf-rays"></div>
+      <div class="rf-ring"></div>
+      <div class="rf-stage">
+        <img class="rf-old" src="${emblem(rb.key)}" alt="">
+        <img class="rf-new" src="${emblem(ra.key)}" alt="">
+        <div class="rf-flash"></div>
+      </div>
+      <div class="rf-txt">
+        <small>${up ? (tierChange ? 'YENİ KADEME' : 'KÜME ATLADIN') : 'KÜME DÜŞTÜN'}</small>
+        <b>${esc(rankLabel(ra.p))}</b>
+        <span>${up ? `${esc(rankLabel(rb.p))} → ${esc(rankLabel(ra.p))}` : 'Bir sonraki maçta geri al!'}</span>
+      </div>
+      <button class="btn rf-ok">Devam</button>`;
+    if (up) for (let i = 0; i < 26; i++) {
+      const p = document.createElement('i');
+      p.className = 'rf-spark';
+      const a = Math.random() * Math.PI * 2, r = 140 + Math.random() * 240;
+      p.style.cssText = `--dx:${Math.cos(a) * r}px;--dy:${Math.sin(a) * r}px;--d:${(1.5 + Math.random() * 0.6).toFixed(2)}s;--s:${(4 + Math.random() * 6).toFixed(1)}px`;
+      el.appendChild(p);
+    }
+    document.body.appendChild(el);
+    if (up) setTimeout(confetti, 1500);
+    const close = () => { el.classList.add('out'); setTimeout(() => el.remove(), 400); };
+    el.addEventListener('click', close);
+    setTimeout(close, up ? 6500 : 4000);
   }
   $('overlayHost').addEventListener('click', e => {
     if (e.target.closest('#toLobby')) { closeOverlay(); if (viewer) { viewer.stop(); viewer = null; } renderRanked(); show('intro'); lnTab('ranked'); renderRooms(); }

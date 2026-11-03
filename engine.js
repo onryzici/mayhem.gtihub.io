@@ -18,8 +18,19 @@
   ];
   const EPIC_DEFS = [
     { key: 'dragon', name: 'Ejder', x: 700, y: 590, hp: 6500, ad: 190, r: 44, spawn: 50, respawn: 70, ranged: true, color: '#f97316', gold: 300 },
+    { key: 'herald', name: 'Vadinin Alameti', x: 700, y: 205, hp: 5200, ad: 150, r: 40, spawn: 45, respawn: 0, despawn: 138, color: '#22d3ee', gold: 200 },
     { key: 'baron', name: 'Baron Nashor', x: 700, y: 205, hp: 11000, ad: 260, r: 52, spawn: 150, respawn: 110, color: '#a855f7', gold: 500 }
   ];
+  // Ejder türleri: her biri takıma kalıcı bir güç verir; 3 ejderde o haritanın ruhu
+  const DRAKES = [
+    { k: 'infernal', name: 'Alev Ejderi', color: '#f97316', buff: { amp: 0.05 }, soul: { amp: 0.12 }, sname: 'Alev Ruhu' },
+    { k: 'mountain', name: 'Dağ Ejderi', color: '#b45309', buff: { dr: 0.05 }, soul: { dr: 0.12 }, sname: 'Dağ Ruhu' },
+    { k: 'ocean', name: 'Okyanus Ejderi', color: '#14b8a6', buff: { regen: 0.004 }, soul: { regen: 0.012 }, sname: 'Okyanus Ruhu' },
+    { k: 'cloud', name: 'Bulut Ejderi', color: '#cbd5e1', buff: { ms: 0.05 }, soul: { ms: 0.1, as: 0.1 }, sname: 'Bulut Ruhu' },
+    { k: 'hextech', name: 'Hextech Ejderi', color: '#38bdf8', buff: { ah: 10, as: 0.05 }, soul: { as: 0.18, ah: 20 }, sname: 'Hextech Ruhu' },
+    { k: 'chemtech', name: 'Kimtek Ejderi', color: '#84cc16', buff: { amp: 0.025, dr: 0.025 }, soul: { amp: 0.07, dr: 0.07 }, sname: 'Kimtek Ruhu' }
+  ];
+  const SOUL_AT = 3;
   // Koridor bekleme noktaları (mavi taraf; kırmızı taraf aynalanır)
   const LANE_POS = { top: [515, 125], mid: [520, 415], adc: [505, 700], support: [540, 668], jungle: [420, 420] };
   const LANING_END = 110;
@@ -36,6 +47,13 @@
   const TOWER_DEFS = [{ lane: 'top', x: 330, y: 125 }, { lane: 'mid', x: 360, y: 425 }, { lane: 'adc', x: 395, y: 700 }];
   const TOWER = { hp: 5000, ad: 300, range: 215, r: 30, gold: 250 };
   const NEXUS = { x: 250, y: 400, hp: 8000, r: 42, gold: 0 };
+  // Minyon dalgaları: her 30 sn'de bir, üç koridordan
+  const MINION = { first: 14, every: 30, melee: { hp: 520, ad: 26, range: 26, r: 9 }, caster: { hp: 330, ad: 34, range: 120, r: 8 }, ms: 150, grow: 0.04 };
+  const LANE_PATHS = {
+    top: [[250, 400], [175, 230], [270, 128], [W - 270, 128], [W - 175, 230], [W - 250, 400]],
+    mid: [[250, 405], [W - 250, 405]],
+    adc: [[250, 400], [175, 575], [280, 690], [W - 280, 690], [W - 175, 575], [W - 250, 400]]
+  };
   const LANE_OF = { top: 'top', mid: 'mid', adc: 'adc', support: 'adc', jungle: 'mid' };
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -137,10 +155,17 @@
       this.nextUid = 0;
       this.gold = [0, 0];
       this.drakes = [0, 0];
+      this.drakeTypes = [[], []];
+      this.souls = [null, null];
+      this.heralds = [0, 0];
+      this.dragonSeq = [];
       this.barons = [0, 0];
       this.plans = [null, null];
       this.planT = 0;
       this.monsters = [];
+      this.minions = [];
+      this.waveAt = MINION.first;
+      this.waveN = 0;
       teams.forEach((team, side) => team.roster.forEach((m, i) => this.units.push(this.makeUnit(m, side, i))));
       for (const side of [0, 1]) for (const def of CAMP_DEFS) this.addMonster(def, side, { x: side ? W - def.x : def.x, y: def.y });
       for (const def of EPIC_DEFS) this.addMonster(def, -1, { x: def.x, y: def.y });
@@ -195,17 +220,18 @@
       const side = m.towerSide;
       const reach = o => dist(o, m) < TOWER.range + m.r + o.r;
       const foes = this.units.filter(o => o.side === 1 - side && !o.dead && !o.realm && !o.isMonster && this.targetable(o) && reach(o));
+      for (const mn of this.minions) if (mn.side === 1 - side && !mn.dead && reach(mn)) foes.push(mn);
       if (!foes.length) { m.target = null; m.streak = 0; return; }
       // kule kuralı: menzilde dost şampiyona vuran rakip önceliklidir
       const allies = this.champs(side).filter(a => !a.dead && dist(a, m) < TOWER.range + 160);
       const aggressor = foes.find(o => !o.isPet && allies.some(a => this.t - (a.lastHurtBy[o.uid] || -10) < 1.5));
       let tg = aggressor || (m.target && foes.includes(m.target) ? m.target : null);
-      if (!tg) tg = foes.filter(o => o.isPet).sort((a, b) => dist(a, m) - dist(b, m))[0] || foes.sort((a, b) => dist(a, m) - dist(b, m))[0];
+      if (!tg) tg = foes.filter(o => o.isMinion).sort((a, b) => dist(a, m) - dist(b, m))[0] || foes.filter(o => o.isPet).sort((a, b) => dist(a, m) - dist(b, m))[0] || foes.sort((a, b) => dist(a, m) - dist(b, m))[0];
       if (tg !== m.target) m.streak = 0;
       m.target = tg;
       if (m.atkCd > 0) return;
       m.atkCd = 1.2;
-      const dmg = TOWER.ad * (1 + Math.min(1.2, m.streak * 0.3)) * (1 + Math.min(0.5, this.t / 600));
+      const dmg = tg.isMinion ? tg.maxHp * 0.3 : TOWER.ad * (1 + Math.min(1.2, m.streak * 0.3)) * (1 + Math.min(0.5, this.t / 600));
       m.streak++;
       this.shoot(m, tg, { speed: 1100, kind: 'spell', color: side ? '#fca5a5' : '#93c5fd', big: true, onHit: () => this.damage(m, tg, dmg, 'true', { tower: true }) });
     }
@@ -220,6 +246,27 @@
       this.emit({ t: 'structureKill', m, u: killer && !killer.isMonster ? killer : null, side });
       this.emit({ t: 'objective', kind: m.isNexus ? 'nexus' : 'tower', m, u: killer && !killer.isMonster ? killer : null, side });
       if (m.isNexus) { this.nexusWinner = side; }
+    }
+
+    // ---------- ejderler ----------
+    riftType() { return this.dragonSeq[2] || this.dragonSeq[this.dragonSeq.length - 1] || 'infernal'; }
+    rollDragon(m) {
+      // ilk iki ejder farklı türden; üçüncüden sonra harita o türe dönüşür
+      let k;
+      if (this.dragonSeq.length < 3) {
+        const pool = DRAKES.filter(d => !this.dragonSeq.includes(d.k));
+        k = pool[Math.floor(RNG() * pool.length)].k;
+        this.dragonSeq.push(k);
+      } else k = this.riftType();
+      const d = DRAKES.find(x => x.k === k);
+      m.dtype = k; m.name = d.name; m.color = d.color;
+    }
+    applyDrakes(side) {
+      const b = { key: 'drake', dur: 9999, keep: true };
+      const add = o => { for (const f in o) b[f] = f === 'dr' ? 1 - (1 - (b[f] || 0)) * (1 - o[f]) : (b[f] || 0) + o[f]; };
+      for (const k of this.drakeTypes[side]) add(DRAKES.find(d => d.k === k).buff);
+      if (this.souls[side]) { add(DRAKES.find(d => d.k === this.souls[side]).soul); b.glow = false; }
+      for (const c of this.champs(side)) this.addBuff(c, { ...b });
     }
 
     // ---------- orman ----------
@@ -247,11 +294,13 @@
     updateMonster(m, dt) {
       if (m.dead) {
         if (m.spawnAt && this.t >= m.spawnAt) {
+          if (m.key === 'dragon') this.rollDragon(m);
           m.dead = false; m.spawnAt = 0; m.hp = m.maxHp; m.x = m.home.x; m.y = m.home.y; m.target = null; m.lastHurtBy = {}; m.shields = []; m.burns = [];
           if (m.epic) this.emit({ t: 'objective', kind: 'spawn', m });
         }
         return;
       }
+      if (m.def.despawn && this.t >= m.def.despawn) { m.dead = true; m.spawnAt = 0; m.deathT = this.t; m.target = null; this.emit({ t: 'objective', kind: 'despawn', m }); return; }
       for (const k of ['stun', 'root', 'sleep', 'suppress', 'stasis', 'banish', 'untarget', 'invis']) if (m[k] > 0) m[k] -= dt;
       if (m.flash > 0) m.flash -= dt;
       if (m.lunge > 0) m.lunge -= dt;
@@ -311,7 +360,7 @@
 
     killMonster(src, m) {
       if (m.isStruct) { this.killStructure(src, m); return; }
-      m.dead = true; m.hp = 0; m.deathT = this.t; m.spawnAt = this.t + m.def.respawn; m.burns = []; m.target = null;
+      m.dead = true; m.hp = 0; m.deathT = this.t; m.spawnAt = m.def.respawn ? this.t + m.def.respawn : 0; m.burns = []; m.target = null;
       this.projs = this.projs.filter(p => p.tg !== m);
       let killer = src.isPet ? src.owner : src;
       if (!killer || killer.isMonster || killer.side > 1) return;
@@ -322,8 +371,14 @@
       if (m.def.buff === 'blue') this.addBuff(killer, { key: 'blue', dur: 90, ah: 40, regen: 0.004, keep: false });
       if (m.def.buff === 'red') this.addBuff(killer, { key: 'red', dur: 90, red: 1, regen: 0.004 });
       if (m.key === 'dragon') {
-        const n = ++this.drakes[side];
-        for (const c of this.champs(side)) this.addBuff(c, { key: 'drake', dur: 9999, amp: 0.06 * n, dr: 0.03 * n, keep: true });
+        ++this.drakes[side];
+        this.drakeTypes[side].push(m.dtype || 'infernal');
+        if (!this.souls[side] && this.drakes[side] >= SOUL_AT) { this.souls[side] = this.riftType(); this.emit({ t: 'objective', kind: 'soul', m, u: killer, side, soul: DRAKES.find(d => d.k === this.souls[side]) }); }
+        this.applyDrakes(side);
+      }
+      if (m.key === 'herald') {
+        this.heralds[side]++;
+        for (const c of this.champs(side)) if (!c.dead) this.addBuff(c, { key: 'herald', dur: 60, ms: 0.04, glow: true, color: '#22d3ee' });
       }
       if (m.key === 'baron') {
         this.barons[side]++;
@@ -341,8 +396,124 @@
     diveOk(u, o) {
       const tw = this.towerCovering(o, o.side);
       if (!tw) return true;
-      if (tw.target && tw.target !== u && !tw.target.dead && tw.target.side === u.side) return o.hp / o.maxHp < 0.5;
-      return o.hp / o.maxHp < 0.22 && u.hp / u.maxHp > 0.55;
+      const tg = tw.target, op = o.hp / o.maxHp, up = u.hp / u.maxHp;
+      // kuleyi başka biri (minyon ya da dost tank) tutuyorsa öldürülebilir hedefe dal
+      if (tg && tg !== u && !tg.dead && tg.side === u.side) {
+        if (tg.isMinion) return tg.hp > tg.maxHp * 0.4 && op < 0.3 && up > 0.5;
+        return op < 0.4 && up > 0.45;
+      }
+      return op < 0.14 && up > 0.7;
+    }
+    // Kuleye vurmak güvenli mi: minyonlar tanklıyor, kule bitmek üzere ya da kalabalık takım
+    siegeOk(u, s) {
+      if (!s.isTower) return true;
+      const tg = s.target;
+      if (tg && tg !== u && !tg.dead && tg.side === u.side && (tg.isMinion || !tg.isPet)) return true;
+      if (this.minions.some(mn => mn.side === u.side && !mn.dead && dist(mn, s) < TOWER.range + s.r + 30)) return true;
+      if (s.hp < s.maxHp * 0.1 && u.hp / u.maxHp > 0.5) return true;
+      const fr = this.friendsNear(u.side, s, 450).length, fo = this.foesNear(u.side, s, 650).length;
+      return this.t > LANING_END && fr >= 3 && fo === 0 && u.hp / u.maxHp > 0.6;
+    }
+    // Kule menzilinin hemen dışında bekleme noktası
+    towerEdge(u, s) {
+      const dx = u.x - s.x, dy = u.y - s.y, d = Math.hypot(dx, dy) || 1, R = TOWER.range + s.r + 45;
+      return { x: s.x + dx / d * R, y: s.y + dy / d * R };
+    }
+    // Yakındaki rakip minyon (kule altında değilse ya da kuleyi bizim minyonlar tutuyorsa)
+    farmMinion(u, r) {
+      let best = null, bd = r;
+      for (const mn of this.minions) {
+        if (mn.dead || mn.side === u.side) continue;
+        const d = dist(mn, u);
+        if (d >= bd) continue;
+        const tw = this.towerCovering(mn, mn.side);
+        if (tw && !this.siegeOk(u, tw)) continue;
+        bd = d; best = mn;
+      }
+      return best;
+    }
+
+    // ---------- minyonlar ----------
+    spawnWave() {
+      this.waveN++;
+      const g = 1 + MINION.grow * (this.waveN - 1);
+      for (const side of [0, 1]) for (const lane of ['top', 'mid', 'adc']) {
+        const path = LANE_PATHS[lane].map(([x, y]) => ({ x: side ? W - x : x, y }));
+        ['melee', 'melee', 'caster', 'caster'].forEach((kind, i) => {
+          const d = MINION[kind];
+          const st = { hp: d.hp * g, ad: d.ad * g, bonusAd: 0, ap: 0, armor: 10, mr: 10, asBase: 0.8, asBonus: 0, as: 0.8, crit: 0, ls: 0, ah: 0, ms: MINION.ms, range: d.range, fx: {} };
+          const off = (i % 2 ? 1 : -1) * 9;
+          const m = {
+            uid: this.nextUid++, side, isMonster: true, isMinion: true, kind, lane, path, wp: 1, name: 'Minyon', color: side ? '#ef4444' : '#3b82f6',
+            st, st0: st, cls: 'minion', role: 'minion', champ: null, items: [], keystone: 0, summs: [], ult: null, power: 0.1, def: { key: 'minion', gold: 20 },
+            x: path[0].x + (i < 2 ? 0 : side ? 26 : -26) + (side ? -1 : 1) * 40, y: path[0].y + off, home: path[0], r: d.r, facing: side ? Math.PI : 0,
+            maxHp: st.hp, hp: st.hp, shields: [], ranged: kind === 'caster', rangePx: d.range, atkCd: 0.3 + i * 0.1, energy: 0, offY: off,
+            stun: 0, root: 0, sleep: 0, suppress: 0, stasis: 0, banish: 0, untarget: 0, invis: 0,
+            fear: null, charm: null, berserk: 0, slowAmt: 0, slowUntil: 0, air: null, dash: null, realm: 0, inside: null, hidden: false,
+            buffs: [], mod: null, dead: false, reviveAt: 0, deathT: 0, spawnAt: 0,
+            target: null, retarget: 0, lastHurt: -10, lastHurtBy: {}, attacks: 0, hitsOn: {},
+            spellblade: false, shred: 0, grievousUntil: 0, exhaustedUntil: 0, vulnUntil: 0, rune: {}, used: {}, summCd: {}, history: [],
+            kills: 0, deaths: 0, assists: 0, dmg: 0, taken: 0, heal: 0, cc: 0, flash: 0, lunge: 0, scale: 1
+          };
+          this.recalc(m);
+          this.minions.push(m);
+        });
+      }
+    }
+    updateMinions(dt) {
+      if (this.t >= this.waveAt) { this.waveAt += MINION.every; this.spawnWave(); }
+      for (const m of this.minions) {
+        if (m.dead) continue;
+        for (const k of ['stun', 'root']) if (m[k] > 0) m[k] -= dt;
+        if (m.flash > 0) m.flash -= dt;
+        if (m.lunge > 0) m.lunge -= dt;
+        if (m.stun > 0) continue;
+        m.retarget -= dt;
+        let tg = m.target;
+        const valid = tg && !tg.dead && !tg.realm && (tg.isMinion || tg.isStruct || this.targetable(tg)) && dist(tg, m) < 260;
+        if (!valid || m.retarget <= 0) {
+          m.retarget = 0.5;
+          tg = null; let bd = 230;
+          for (const o of this.minions) { if (o.dead || o.side === m.side) continue; const d = dist(o, m); if (d < bd) { bd = d; tg = o; } }
+          if (!tg) for (const s of this.structures) {
+            if (s.dead || s.towerSide === m.side) continue;
+            if (s.isNexus && !this.nexusOpen(s.towerSide)) continue;
+            if (dist(s, m) < 230) { tg = s; break; }
+          }
+          // şampiyona yalnızca başka hedef yoksa ve dibindeyse
+          if (!tg) for (const o of this.units) { if (o.isMonster || o.isPet || o.dead || o.realm || o.side === m.side || !this.targetable(o)) continue; if (dist(o, m) < 120) { tg = o; break; } }
+          m.target = tg;
+        }
+        if (tg) {
+          const reach = m.rangePx + m.r + tg.r;
+          const d = dist(tg, m);
+          m.facing = Math.atan2(tg.y - m.y, tg.x - m.x);
+          if (d > reach) { this.moveToward(m, tg, dt, reach - 2); continue; }
+          m.atkCd -= dt;
+          if (m.atkCd <= 0) {
+            m.atkCd = 1.25;
+            const dmg = m.st.ad * (tg.isMinion ? 1 : tg.isStruct ? 1 : 0.6);
+            if (m.ranged) this.shoot(m, tg, { speed: 900, kind: 'attack', small: true, color: m.side ? '#fca5a5' : '#93c5fd', onHit: () => this.damage(m, tg, dmg, 'physical', { quiet: true, basic: true }) });
+            else { m.lunge = 0.14; this.damage(m, tg, dmg, 'physical', { quiet: true, basic: true }); }
+          }
+          continue;
+        }
+        // koridor boyunca ilerle
+        const wp = m.path[Math.min(m.wp, m.path.length - 1)];
+        const goal = { x: wp.x, y: wp.y + (m.wp > 0 && m.wp < m.path.length - 1 ? m.offY : 0) };
+        if (dist(m, goal) < 14 && m.wp < m.path.length - 1) m.wp++;
+        this.moveToward(m, goal, dt, 4);
+      }
+      if (this.minions.length > 60) this.minions = this.minions.filter(m => !m.dead || this.t - m.deathT < 1);
+    }
+    killMinion(src, m) {
+      m.dead = true; m.hp = 0; m.deathT = this.t;
+      this.projs = this.projs.filter(p => p.tg !== m);
+      const k = src.isPet ? src.owner : src;
+      if (k && !k.isMonster && k.side !== m.side) {
+        this.gold[k.side] += 20; k.cs = (k.cs || 0) + 1; k.energy += 2;
+      }
+      for (const o of this.minions) if (o.target === m) o.target = null;
     }
     safe(o) { return !this.inFountain(o, o.side); }
     baseDist(o, side) { return dist(o, FOUNTAIN[side]); }
@@ -390,11 +561,12 @@
           const hit = m.hp < m.maxHp - 1 && this.t - m.lastHurt < 3;
           let want = false;
           if (m.key === 'dragon') want = mine >= 3 && diff >= 0;
+          if (m.key === 'herald') want = mine >= 3 && diff >= 0 && this.t > 50;
           if (m.key === 'baron') want = (mine >= 3 && diff >= 2) || (mine >= 4 && diff >= 1) || (this.t > 230 && mine >= 4 && diff >= 0);
           // rakip canavara başladıysa ve sayıca yetişebiliyorsak itiraz et
           if (hit && enemyOn > 0 && mine >= enemyOn) want = true;
           if (want && ourOn >= 2 && enemyOn >= ourOn + 2) want = false;
-          if (want && (!plan || m.key === 'baron')) plan = m;
+          if (want && (!plan || m.key === 'baron' || (m.key === 'dragon' && plan.key === 'herald'))) plan = m;
         }
         if (!plan) {
           // kuleni savun
@@ -451,7 +623,7 @@
       if (tw && tw.target === u) odds *= 0.55;
       const killable = foes.some(o => o.hp / o.maxHp < 0.22 && dist(o, u) < 320);
       const shotBy = this.structures.find(s => s.isTower && !s.dead && s.target === u);
-      if (shotBy && pct < 0.6 && !killable) { u.mode = 'retreat'; u.goal = { x: u.x + (u.x - shotBy.x) * 1.5 + (FOUNTAIN[u.side].x - u.x) * 0.3, y: u.y + (u.y - shotBy.y) * 0.8 }; return; }
+      if (shotBy && !killable && (pct < 0.92 || !this.siegeOk(u, shotBy))) { u.mode = 'retreat'; const e = this.towerEdge(u, shotBy); u.goal = { x: e.x + (FOUNTAIN[u.side].x - e.x) * 0.15, y: e.y }; return; }
       if (!killable && (pct < u.rai.retreat * 0.8 || (pct < 0.45 && odds < 0.8 && foes.length) || (pct < 0.6 && odds < 0.45 && foes.length))) {
         u.mode = 'recall'; u.target = null; u.recallAt = 0;
         return;
@@ -485,7 +657,7 @@
         if (a === u || a.realm || this.inFountain(a, a.side) || this.baseDist(a, 1 - u.side) < 450) continue;
         const d = dist(a, u);
         if (d > hd) continue;
-        const near = this.enemiesOf(a).filter(o => !o.isPet && dist(o, a) < 360 && this.chaseOk(u, o));
+        const near = this.enemiesOf(a).filter(o => !o.isPet && dist(o, a) < 360 && this.chaseOk(u, o) && this.diveOk(u, o));
         if (!near.length) continue;
         if (this.odds(a, 650) + this.strength(u) * 0.5 < 0.55 && pct < 0.6) continue;
         help = near[0]; hd = d;
@@ -496,6 +668,11 @@
       if (plan && !plan.dead && pct > 0.4) {
         if (plan.isStruct && plan.towerSide === u.side) { u.mode = 'move'; u.goal = { x: plan.x + (u.side ? -60 : 60), y: plan.y }; return; }
         if (plan.isStruct) {
+          if (!this.siegeOk(u, plan)) {
+            const mn = this.farmMinion(u, 380);
+            if (mn) { u.camp = mn; u.mode = dist(u, mn) < this.rangePx(u) + u.r + mn.r + 20 ? 'camp' : 'move'; u.goal = { x: mn.x, y: mn.y }; return; }
+            u.mode = 'move'; u.goal = this.towerEdge(u, plan); return;
+          }
           u.camp = plan;
           if (dist(u, plan) < this.rangePx(u) + u.r + plan.r + 40) u.mode = 'camp';
           else { u.mode = 'move'; u.goal = { x: plan.x + (u.side ? 1 : -1) * 60, y: plan.y }; }
@@ -509,7 +686,7 @@
       if (u.role === 'jungle') {
         let gank = null, gd = 950;
         for (const o of this.enemiesOf(u)) {
-          if (o.isPet || o.realm || !this.chaseOk(u, o) || o.hp / o.maxHp > 0.6) continue;
+          if (o.isPet || o.realm || !this.chaseOk(u, o) || !this.diveOk(u, o) || o.hp / o.maxHp > 0.6) continue;
           const d = dist(o, u);
           if (d < gd && this.sideOdds(u.side, o, 600, this.strength(u)) > 1.25) { gd = d; gank = o; }
         }
@@ -522,7 +699,11 @@
         const laneFoes = this.foesNear(u.side, lp, 520).length;
         // koridor boşsa kuleyi it
         const tgt = this.enemyLaneTarget(u);
+        // minyon kes (destek son vuruşu taşıyıcıya bırakır)
+        const mn = u.role !== 'support' || !this.friendsNear(u.side, u, 300).some(a => a.role === 'adc') ? this.farmMinion(u, laneFoes ? 260 : 420) : null;
+        if (mn) { u.camp = mn; u.mode = dist(u, mn) < this.rangePx(u) + u.r + mn.r + 20 ? 'camp' : 'move'; u.goal = { x: mn.x, y: mn.y }; return; }
         if (tgt && (!laneFoes || this.t > LANING_END) && this.foesNear(u.side, tgt, 650).length === 0 && this.t > 15 && (u.role !== 'support' || this.friendsNear(u.side, tgt, 500).length)) {
+          if (!this.siegeOk(u, tgt)) { u.mode = 'move'; u.goal = this.towerEdge(u, tgt); return; }
           u.camp = tgt;
           u.mode = dist(u, tgt) < this.rangePx(u) + u.r + tgt.r + 40 ? 'camp' : 'move';
           u.goal = { x: tgt.x + (u.side ? 1 : -1) * 40, y: tgt.y };
@@ -583,6 +764,8 @@
           const magic = this.isMagic(u);
           this.emit({ t: 'blast', x: m.x, y: m.y, r: 70, color: magic ? '#b48cff' : '#f5a524' });
           this.damage(u, m, this.abilityBase(u) * 1.2, magic ? 'magic' : 'physical', { ability: true });
+          // dalga temizleme: yetenek yakındaki minyonlara da vurur
+          if (m.isMinion) for (const o of this.minions) if (o !== m && !o.dead && o.side === m.side && dist(o, m) < 85) this.damage(u, o, this.abilityBase(u) * 0.9, magic ? 'magic' : 'physical', { ability: true, quiet: true, aoe: true });
           if (u.cls === 'fighter' || u.cls === 'apBruiser' || u.cls === 'tank') this.heal(u, u, u.maxHp * 0.03, true);
         }
         return;
@@ -754,6 +937,7 @@
       this.planT -= dt;
       if (this.planT <= 0) { this.planT = 1; this.updatePlans(); }
       for (const u of this.units) this.updateUnit(u, dt);
+      this.updateMinions(dt);
       this.fountains(dt);
       this.updateProjs(dt);
       this.updateZones(dt);
@@ -1075,7 +1259,7 @@
         const epic = this.monsters.find(m => m.epic && !m.dead && dist(u, m) < 260 + m.r && m.hp <= SMITE_DMG);
         const epicSoon = this.monsters.some(m => m.epic && ((!m.dead && dist(u, m) < 900) || (m.dead && m.spawnAt - this.t < 15 && m.spawnAt > this.t)));
         if (epic) smite(epic, SMITE_DMG, 30);
-        else if (!epicSoon && u.mode === 'camp' && u.camp && !u.camp.epic && !u.camp.isStruct && !u.camp.dead && dist(u, u.camp) < 220 && u.camp.hp > SMITE_DMG * 0.6) smite(u.camp, SMITE_DMG, 30);
+        else if (!epicSoon && u.mode === 'camp' && u.camp && !u.camp.epic && !u.camp.isStruct && !u.camp.isMinion && !u.camp.dead && dist(u, u.camp) < 220 && u.camp.hp > SMITE_DMG * 0.6) smite(u.camp, SMITE_DMG, 30);
         else if (!epicSoon && u.mode === 'fight' && u.target && !u.target.isPet && !u.target.isMonster && !u.target.dead && dist(u, u.target) < 200 && u.target.hp / u.target.maxHp < 0.2) smite(u.target, 220, 30);
       }
       if (ready('SummonerHaste') && u.mode === 'fight' && u.target && !u.target.isMonster && dist(u, u.target) > 280) {
@@ -1392,12 +1576,22 @@
     }
     exportState() {
       return {
-        tick: this.tick, t: this.t, kills: this.kills, gold: this.gold, drakes: this.drakes, barons: this.barons, towersDown: this.towersDown,
+        tick: this.tick, t: this.t, kills: this.kills, gold: this.gold, drakes: this.drakes, barons: this.barons, towersDown: this.towersDown, heralds: this.heralds,
+        wv: [this.waveAt, this.waveN],
+        mn: this.minions.filter(m => !m.dead).map(m => [m.uid, Math.round(m.x * 10) / 10, Math.round(m.y * 10) / 10, Math.round(m.hp), m.wp]),
         u: this.units.filter(u => !u.isPet).map(u => [u.uid, Math.round(u.x * 10) / 10, Math.round(u.y * 10) / 10, Math.round(u.hp), Math.round(u.maxHp), u.dead ? 1 : 0, Math.round((u.reviveAt || 0) * 100) / 100, Math.round(u.energy * 10) / 10, u.kills || 0, u.deaths || 0, u.assists || 0, Math.round(u.dmg || 0), u.spawnAt || 0])
       };
     }
     importState(s) {
-      this.kills = s.kills; this.gold = s.gold; this.drakes = s.drakes; this.barons = s.barons; this.towersDown = s.towersDown;
+      this.kills = s.kills; this.gold = s.gold; this.drakes = s.drakes; this.barons = s.barons; this.towersDown = s.towersDown; if (s.heralds) this.heralds = s.heralds;
+      if (s.mn) {
+        const live = new Map(s.mn.map(r => [r[0], r]));
+        for (const m of this.minions) {
+          const r = live.get(m.uid);
+          if (!r) { if (!m.dead) { m.dead = true; m.hp = 0; m.deathT = this.t; } continue; }
+          m.x = r[1]; m.y = r[2]; m.hp = r[3]; m.wp = r[4];
+        }
+      }
       const by = new Map(this.units.map(u => [u.uid, u]));
       for (const [uid, x, y, hp, maxHp, dead, reviveAt, energy, k, d, a, dmg, spawnAt] of s.u) {
         const u = by.get(uid);
@@ -2428,12 +2622,13 @@
     damage(src, t, raw, type, o = {}) {
       if (!t || t.dead || raw <= 0) return 0;
       if (t.isStruct) {
-        if (src.isStruct || src.isMonster || (src.side === t.towerSide)) return 0;
+        if (src.isStruct || (src.isMonster && !src.isMinion) || (src.side === t.towerSide)) return 0;
         if (t.isNexus && !this.nexusOpen(t.towerSide)) { if (!o.quiet) this.emit({ t: 'immune', u: t }); return 0; }
         if (o.smite || o.dot) return 0;
         // kule kaplaması: erken oyunda yapılar çok dayanıklı, sonra yumuşar
-        raw *= this.t < LANING_END ? 0.22 : this.t < 200 ? 0.38 : 0.55;
+        raw *= src.isMinion ? 1 : this.t < LANING_END ? 0.3 : this.t < 200 ? 0.48 : 0.62;
         if (o.aoe) raw *= 0.5;
+        if (src.buffs && src.buffs.some(b => b.key === 'herald')) raw *= 1.6;
       }
       if (t.stasis > 0 || t.banish > 0) return 0;
       if (t.inside && !t.insideAlly) return 0;
@@ -2563,6 +2758,7 @@
           }
         }
       } else {
+        if (t.isMinion) { this.killMinion(src, t); return amt; }
         if (t.isMonster) { this.killMonster(src, t); return amt; }
         if (t.isPet) { this.killPet(src, t); return amt; }
         this.kill(src, t);
@@ -2597,8 +2793,13 @@
       }
       if (t.st.fx.ga && !t.used.ga) { t.used.ga = 1; t.reviveAt = this.t + 4; t.reviveHp = 0.5; this.emit({ t: 'itemProc', u: t, id: 3026 }); }
       else { t.reviveAt = this.t + 12 + this.t * 0.04; t.respawnHome = true; }
+      const victimSpree = t.spree || 0;
+      t.spree = 0;
+      let shutdown = 0;
       if (!killer.isMonster && killer.side !== t.side) {
-        this.gold[killer.side] += 300;
+        shutdown = victimSpree >= 3 ? 150 + 50 * (victimSpree - 3) : 0;
+        this.gold[killer.side] += 300 + shutdown;
+        killer.spree = (killer.spree || 0) + 1;
         // buffları katile geçer
         for (const b of t.buffs) if ((b.key === 'red' || b.key === 'blue') && b.until > this.t) this.addBuff(killer, { ...b, dur: b.until - this.t });
         killer.kills++;
@@ -2624,7 +2825,7 @@
       t.buffs = t.buffs.filter(b => b.keep);
       this.recalc(t);
       if (killer.isMonster || killer.side === t.side) { this.emit({ t: 'death', victim: t }); return; }
-      this.emit({ t: 'kill', killer, victim: t, first: this.kills[0] + this.kills[1] === 1 });
+      this.emit({ t: 'kill', killer, victim: t, first: this.kills[0] + this.kills[1] === 1, shutdown, spree: killer.spree || 0, victimSpree });
     }
 
     revive(u, hpPct) {
@@ -2654,7 +2855,7 @@
     alive(side) { return this.units.some(u => u.side === side && !u.isPet && (!u.dead || u.reviveAt)); }
 
     // 5 dakika sonunda: önce skor, eşitse ejder+baron, sonra altın
-    score(side) { return this.kills[side] * 1000 + (this.drakes[side] + this.barons[side] * 2 + this.towersDown[side]) * 10 + this.gold[side] / 10000; }
+    score(side) { return this.kills[side] * 1000 + (this.drakes[side] + this.barons[side] * 2 + this.towersDown[side] + this.heralds[side] * 0.5) * 10 + this.gold[side] / 10000; }
     checkEnd() {
       if (this.nexusWinner !== undefined) { this.done = true; this.winner = this.nexusWinner; this.byNexus = true; return; }
       if (this.t < GAME_LEN) return;
@@ -2674,5 +2875,5 @@
     }
   }
 
-  root.Mayhem = { W, H, LEVEL, REALM, HP_MULT, ITEMS, setItemData, computeStats, Sim, dist, GAME_LEN, FOUNTAIN, FOUNTAIN_R, CAMP_DEFS, EPIC_DEFS };
+  root.Mayhem = { W, H, LEVEL, REALM, HP_MULT, ITEMS, setItemData, computeStats, Sim, dist, GAME_LEN, FOUNTAIN, FOUNTAIN_R, CAMP_DEFS, EPIC_DEFS, DRAKES, SOUL_AT };
 })(typeof window !== 'undefined' ? window : globalThis);
