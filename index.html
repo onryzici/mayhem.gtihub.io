@@ -123,6 +123,19 @@
 
 
 
+
+    .acc { min-width: min(440px, 86vw); }
+    .acc-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid #2a2f38; }
+    .acc-tabs button { padding: 10px 14px; border: 0; background: none; cursor: pointer; font-family: var(--head); font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #a09b8c; border-bottom: 2px solid transparent; }
+    .acc-tabs button.on { color: #f0e6d2; border-bottom-color: var(--gold); }
+    .acc-row { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 6px; }
+    .acc-msg { margin-top: 12px; padding: 9px 12px; border-left: 3px solid var(--gold); background: rgba(200,161,75,.08); font-size: 13px; }
+    .acc-code { min-height: 84px; resize: vertical; font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all; }
+    .acc-check { display: flex; gap: 8px; align-items: center; font-size: 13px; color: #c3cad6; margin: -6px 0 14px; }
+    .acc-head { display: flex; align-items: center; gap: 14px; margin: 8px 0 18px; }
+    .acc-head img { width: 76px; height: 76px; object-fit: contain; }
+    .rk-user { font-size: 13px; color: #c3cad6; margin-top: 6px; }
+    .linkbtn { border: 0; background: none; padding: 0; color: var(--gold-2); text-decoration: underline; cursor: pointer; font-size: 13px; }
     /* Dereceli / online */
     .ln-rank { width: 34px; height: 34px; object-fit: contain; margin-left: 2px; }
     .rk-grid { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 16px; }
@@ -624,6 +637,7 @@
               <div class="rk-card">
                 <img class="rk-emb" id="rkEmblem" alt="">
                 <div class="eyebrow">Dereceli · Sezon 1</div>
+                <div class="rk-user" id="rkUser"></div>
                 <h2 id="rkTier">Gümüş IV</h2>
                 <div class="rk-lp"><span id="rkLp">0 LP</span><i id="rkBar"></i></div>
                 <div class="muted" id="rkWL" style="font-size:13px;margin-top:8px"></div>
@@ -790,10 +804,10 @@
   <div id="overlayHost"></div>
 
   <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
-  <script src="pro.js?v=1793693227"></script>
-  <script src="data.js?v=1793693227"></script>
-  <script src="engine.js?v=1793693227"></script>
-  <script src="render.js?v=1793693227"></script>
-  <script src="app.js?v=1793693227"></script>
+  <script src="pro.js?v=1793693779"></script>
+  <script src="data.js?v=1793693779"></script>
+  <script src="engine.js?v=1793693779"></script>
+  <script src="render.js?v=1793693779"></script>
+  <script src="app.js?v=1793693779"></script>
 </body>
 </html>

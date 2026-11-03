@@ -220,7 +220,7 @@
     $('pvBadge').style.setProperty('--c', S.team.color);
     $('teamPreview').style.setProperty('--pc', S.team.color);
     $('pvName').textContent = name || 'Takımın';
-    $('lnName').textContent = name || 'Sihirdar';
+    $('lnName').textContent = typeof ACC !== 'undefined' && ACC.user ? ACC.list[ACC.user].user : 'Misafir · Giriş yap';
     $('lnBadge').textContent = tag;
     $('lnBadge').style.setProperty('--c', S.team.color);
     $('toDraft').disabled = !(S.champs && name.length >= 2);
@@ -243,6 +243,7 @@
     cancelLobby();
     S.team.name = $('teamName').value.trim();
     S.team.tag = ($('teamTag').value.trim() || autoTag(S.team.name)).toLocaleUpperCase('tr');
+    if (typeof rememberTeam === 'function') rememberTeam();
     S.team.roster = [];
     document.documentElement.style.setProperty('--team', S.team.color);
     refreshTeamBits();
@@ -1095,9 +1096,143 @@
     pr.solo = pr.solo || { tours: 0, titles: 0, best: 3 };
     return pr;
   }
-  const PROFILE = loadProfile();
-  const saveProfile = () => { try { localStorage.setItem('mayhemProfile', JSON.stringify(PROFILE)); } catch (e) {} };
+  // ---------- hesaplar (yerel) ----------
+  // Hesaplar bu tarayıcıda saklanır; şifre PBKDF2 ile tuzlanıp özetlenir, açık metin tutulmaz
+  const ACC = { list: {}, user: null };
+  try { ACC.list = JSON.parse(localStorage.getItem('mayhemAccounts') || '{}') || {}; } catch (e) { ACC.list = {}; }
+  try { ACC.user = localStorage.getItem('mayhemSession') || null; } catch (e) {}
+  if (ACC.user && !ACC.list[ACC.user]) ACC.user = null;
+  let GUEST = loadProfile();
+  let PROFILE = ACC.user ? ACC.list[ACC.user].profile : GUEST;
+  const saveAccounts = () => { try { localStorage.setItem('mayhemAccounts', JSON.stringify(ACC.list)); } catch (e) {} };
+  const saveProfile = () => {
+    try {
+      if (ACC.user) { ACC.list[ACC.user].profile = PROFILE; saveAccounts(); }
+      else localStorage.setItem('mayhemProfile', JSON.stringify(PROFILE));
+    } catch (e) {}
+  };
   saveProfile();
+  const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+  async function hashPw(pw, salt) {
+    const enc = new TextEncoder();
+    if (window.crypto && crypto.subtle) {
+      const key = await crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveBits']);
+      return hex(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: enc.encode(salt), iterations: 120000, hash: 'SHA-256' }, key, 256));
+    }
+    let h = 2166136261; for (const ch of salt + pw) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return 'f' + (h >>> 0).toString(16);
+  }
+  const userKey = u => u.trim().toLocaleLowerCase('tr');
+  const validUser = u => /^[\p{L}\p{N}_. -]{3,16}$/u.test(u.trim());
+  async function register(user, pw, keepGuest) {
+    const k = userKey(user);
+    if (!validUser(user)) throw new Error('Kullanıcı adı 3-16 karakter olmalı (harf, rakam, boşluk, _ . -).');
+    if (pw.length < 6) throw new Error('Şifre en az 6 karakter olmalı.');
+    if (ACC.list[k]) throw new Error('Bu kullanıcı adı bu tarayıcıda zaten kayıtlı.');
+    const salt = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const base = keepGuest ? JSON.parse(JSON.stringify(GUEST)) : { lp: START_LP, w: 0, l: 0, hist: [], solo: { tours: 0, titles: 0, best: 3 } };
+    const profile = { ...base, id: Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4), user: user.trim(), created: Date.now(), team: { name: S.team.name || $('teamName').value.trim(), tag: S.team.tag, color: S.team.color } };
+    ACC.list[k] = { user: user.trim(), salt, hash: await hashPw(pw, salt), profile };
+    if (keepGuest) { GUEST = { ...GUEST, lp: START_LP, w: 0, l: 0, hist: [] }; try { localStorage.setItem('mayhemProfile', JSON.stringify(GUEST)); } catch (e) {} }
+    saveAccounts();
+    loginAs(k);
+  }
+  async function login(user, pw) {
+    const a = ACC.list[userKey(user)];
+    if (!a || await hashPw(pw, a.salt) !== a.hash) throw new Error('Kullanıcı adı ya da şifre yanlış.');
+    loginAs(userKey(user));
+  }
+  function loginAs(k) {
+    cancelLobby();
+    ACC.user = k;
+    try { localStorage.setItem('mayhemSession', k); } catch (e) {}
+    PROFILE = ACC.list[k].profile;
+    applyTeam();
+    accountChanged();
+  }
+  function applyTeam() {
+    const t = PROFILE.team;
+    if (t && t.name) {
+      S.team.name = t.name; S.team.tag = t.tag || autoTag(t.name); S.team.color = t.color || S.team.color;
+      $('teamName').value = t.name; $('teamTag').value = S.team.tag; S.tagTouched = true;
+      document.querySelectorAll('.swatch').forEach(x => x.classList.toggle('on', x.dataset.c === S.team.color));
+    }
+  }
+  if (ACC.user) applyTeam();
+  function logout() {
+    cancelLobby();
+    ACC.user = null;
+    try { localStorage.removeItem('mayhemSession'); } catch (e) {}
+    PROFILE = GUEST;
+    accountChanged();
+  }
+  function accountChanged() {
+    renderRanked();
+    if (S.champs) updateIntro();
+  }
+  // Hesap kodu: hesabı başka cihaza taşımak için (şifre özeti dahil, şifre değil)
+  const exportCode = () => { const a = ACC.list[ACC.user]; return 'MHL1.' + btoa(unescape(encodeURIComponent(JSON.stringify(a)))); };
+  function importCode(code) {
+    let a;
+    try { a = JSON.parse(decodeURIComponent(escape(atob(code.trim().replace(/^MHL1\./, ''))))); } catch (e) { throw new Error('Hesap kodu okunamadı.'); }
+    if (!a || !a.user || !a.hash || !a.salt || !a.profile) throw new Error('Hesap kodu geçersiz.');
+    const k = userKey(a.user);
+    const cur = ACC.list[k];
+    if (cur && cur.salt !== a.salt) throw new Error('Bu tarayıcıda aynı adla başka bir hesap var.');
+    ACC.list[k] = a;
+    saveAccounts();
+    return a.user;
+  }
+  function accountModal(tab = 'login', msg = '') {
+    if (ACC.user) {
+      const a = ACC.list[ACC.user], r = rankOf(PROFILE.lp);
+      overlay(`<div class="acc">
+        <div class="eyebrow">Hesabım</div>
+        <div class="acc-head"><img src="${emblem(r.key)}" alt=""><div><h2>${esc(a.user)}</h2><span class="muted">${rankLabel(PROFILE.lp)} · ${r.lp} LP · ${PROFILE.w}G ${PROFILE.l}M</span><br><span class="muted" style="font-size:12px">Kayıt: ${new Date(PROFILE.created || Date.now()).toLocaleDateString('tr-TR')}</span></div></div>
+        <label class="field"><span>Hesap kodu · başka cihaza taşımak için</span><textarea class="input acc-code" id="accCode" readonly>${esc(exportCode())}</textarea></label>
+        <div class="acc-row"><button class="btn ghost" id="accCopy">Kodu kopyala</button><button class="btn ghost" id="accOut">Çıkış yap</button><button class="btn" id="accClose">Kapat</button></div>
+        ${msg ? `<div class="acc-msg">${esc(msg)}</div>` : ''}
+      </div>`);
+      return;
+    }
+    const others = Object.values(ACC.list).map(a => a.user);
+    overlay(`<div class="acc">
+      <div class="acc-tabs"><button class="${tab === 'login' ? 'on' : ''}" data-acc-tab="login">Giriş yap</button><button class="${tab === 'register' ? 'on' : ''}" data-acc-tab="register">Kayıt ol</button><button class="${tab === 'import' ? 'on' : ''}" data-acc-tab="import">Hesap kodu</button></div>
+      ${tab === 'import' ? `
+        <label class="field"><span>Başka cihazdan aldığın hesap kodunu yapıştır</span><textarea class="input acc-code" id="accImport" placeholder="MHL1.…"></textarea></label>
+        <div class="acc-row"><button class="btn ghost" id="accClose">Vazgeç</button><button class="btn" id="accDoImport">İçe aktar</button></div>` : `
+        <label class="field"><span>Kullanıcı adı</span><input class="input" id="accUser" maxlength="16" autocomplete="username" ${others.length && tab === 'login' ? `list="accUsers"` : ''}></label>
+        ${others.length ? `<datalist id="accUsers">${others.map(u => `<option value="${esc(u)}">`).join('')}</datalist>` : ''}
+        <label class="field"><span>Şifre</span><input class="input" id="accPw" type="password" autocomplete="${tab === 'login' ? 'current-password' : 'new-password'}"></label>
+        ${tab === 'register' ? `<label class="field"><span>Şifre (tekrar)</span><input class="input" id="accPw2" type="password" autocomplete="new-password"></label>
+        ${GUEST.w + GUEST.l > 0 ? `<label class="acc-check"><input type="checkbox" id="accKeep" checked> Misafir olarak kazandığım ${rankLabel(GUEST.lp)} derecesini hesaba taşı</label>` : ''}` : ''}
+        <div class="acc-row"><button class="btn ghost" id="accClose">Vazgeç</button><button class="btn" id="accGo">${tab === 'login' ? 'Giriş yap' : 'Hesap oluştur'}</button></div>`}
+      ${msg ? `<div class="acc-msg">${esc(msg)}</div>` : ''}
+      <p class="rk-note">Hesaplar bu tarayıcıda saklanır. Başka cihazda oynamak için "Hesabım"dan hesap kodunu alıp orada içe aktar.</p>
+    </div>`);
+    const f = $('accUser'); if (f) f.focus();
+  }
+  $('overlayHost').addEventListener('click', async e => {
+    const t = e.target.closest('[data-acc-tab]'); if (t) { accountModal(t.dataset.accTab); return; }
+    if (e.target.closest('#accClose')) { closeOverlay(); return; }
+    if (e.target.closest('#accOut')) { logout(); closeOverlay(); return; }
+    if (e.target.closest('#accCopy')) { const ta = $('accCode'); ta.select(); try { await navigator.clipboard.writeText(ta.value); } catch (er) { document.execCommand('copy'); } accountModal('login', 'Hesap kodu kopyalandı.'); return; }
+    if (e.target.closest('#accDoImport')) { try { const u = importCode($('accImport').value); accountModal('login', `${u} hesabı eklendi. Şimdi şifrenle giriş yap.`); } catch (er) { accountModal('import', er.message); } return; }
+    if (e.target.closest('#accGo')) {
+      const reg = !!$('accPw2');
+      const user = $('accUser').value, pw = $('accPw').value;
+      const btn = e.target.closest('#accGo'); btn.disabled = true; btn.textContent = '…';
+      try {
+        if (reg) { if (pw !== $('accPw2').value) throw new Error('Şifreler aynı değil.'); await register(user, pw, $('accKeep') ? $('accKeep').checked : false); }
+        else await login(user, pw);
+        closeOverlay();
+        const after = MM.afterLogin; MM.afterLogin = null; if (after) after();
+      } catch (er) { accountModal(reg ? 'register' : 'login', er.message); if ($('accUser')) $('accUser').value = user; }
+    }
+  });
+  $('overlayHost').addEventListener('keydown', e => { if (e.key === 'Enter' && $('accGo') && e.target.matches('input')) $('accGo').click(); });
+  document.querySelector('.ln-prof').addEventListener('click', () => accountModal());
+  document.addEventListener('click', e => { if (e.target.closest('#rkLogin')) accountModal(Object.keys(ACC.list).length ? 'login' : 'register'); });
+  document.querySelector('.ln-prof').style.cursor = 'pointer';
   // Elo tabanlı LP: güçlü rakibi yenmek daha çok kazandırır
   function lpDelta(me, opp, won) {
     const E = 1 / (1 + Math.pow(10, (opp - me) / 400));
@@ -1123,6 +1258,7 @@
     $('rkSolo').textContent = `Tek oyunculu: ${soloBadge()} · ${PROFILE.solo.tours} turnuva`;
     $('rkHist').innerHTML = PROFILE.hist.slice(0, 8).map(h => `<div class="rk-h ${h.won ? 'w' : 'l'}"><b>${h.won ? 'Zafer' : 'Bozgun'}</b><span>${esc(h.opp)}</span><em>${h.d > 0 ? '+' : ''}${h.d} LP</em></div>`).join('') || '<div class="muted" style="font-size:13px">Henüz dereceli maç yok.</div>';
     $('lnRank').src = emblem(r.key);
+    $('rkUser').innerHTML = ACC.user ? `<b>${esc(ACC.list[ACC.user].user)}</b> olarak oynuyorsun` : 'Misafirsin · <button type="button" class="linkbtn" id="rkLogin">Giriş yap / kayıt ol</button>';
     $('lnRankTxt').textContent = `${rankLabel(PROFILE.lp)} · ${r.lp} LP`;
   }
 
@@ -1131,7 +1267,7 @@
   const P = 'mayhemligi/v2/';
   const NET = { c: null, ready: null, subs: new Map(), broker: '' };
   // Her sekmenin kendi ağ kimliği olur: aynı tarayıcıda iki sekme birbiriyle oynayabilir
-  const SID = PROFILE.id + '-' + Math.random().toString(36).slice(2, 6);
+  const SID = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6);
   function netConnect() {
     if (NET.ready) return NET.ready;
     NET.ready = new Promise((resolve, reject) => {
@@ -1168,7 +1304,7 @@
 
   // ---------- 9. eşleşme ve odalar ----------
   const MM = { state: 'idle', since: 0, seen: new Map(), rooms: new Map(), pending: null, timer: null, code: '' };
-  const meCard = () => ({ name: S.team.name, tag: S.team.tag, color: S.team.color, lp: PROFILE.lp });
+  const meCard = () => ({ name: S.team.name, tag: S.team.tag, color: S.team.color, lp: PROFILE.lp, user: ACC.user ? ACC.list[ACC.user].user : 'Misafir', pid: PROFILE.id });
   const mmWindow = () => Math.min(1400, 150 + 30 * (Date.now() - MM.since) / 1000);
   function saveTeamForm() {
     const name = $('teamName').value.trim();
@@ -1176,6 +1312,7 @@
     S.team.name = name;
     S.team.tag = ($('teamTag').value.trim() || autoTag(name)).toLocaleUpperCase('tr');
     document.documentElement.style.setProperty('--team', S.team.color);
+    rememberTeam();
     return true;
   }
   // Takım adı yoksa Dereceli sekmesinde kalıp sağdaki formu gösterir; kaydedilince istenen işlem sürer
@@ -1191,6 +1328,7 @@
     if (MM.state === 'hosting') pub(`${P}rooms`, { closed: true });
     if (MM.state === 'queue' || MM.state === 'hosting' || MM.state === 'joining') { MM.state = 'idle'; MM.pending = null; rkStatus(''); rkButtons(); }
   }
+  function rememberTeam() { if (ACC.user) { PROFILE.team = { name: S.team.name, tag: S.team.tag, color: S.team.color }; saveProfile(); } }
   function rankedFormSubmit() {
     if (!saveTeamForm()) { needTeam(MM.after); return; }
     const f = MM.after; MM.after = null;
@@ -1238,7 +1376,7 @@
   }
   function onInbox(m) {
     if (m.type === 'invite' && MM.state === 'queue') {
-      if (MM.pending || String(m.from).startsWith(PROFILE.id + '-')) { pub(inbox(m.from), { type: 'decline' }); return; }
+      if (MM.pending || (m.card && m.card.pid === PROFILE.id)) { pub(inbox(m.from), { type: 'decline' }); return; }
       pub(inbox(m.from), { type: 'accept', match: m.match, card: meCard() });
       beginMatch({ id: m.match, host: false, oppId: m.from, opp: m.card, ranked: true });
     } else if (m.type === 'accept' && MM.state === 'queue' && MM.pending && MM.pending.to === m.from && MM.pending.match === m.match) {
@@ -1269,6 +1407,7 @@
   }
   $('rkQueue').addEventListener('click', async () => {
     if (MM.state === 'queue') { MM.state = 'idle'; MM.pending = null; rkStatus(''); rkButtons(); return; }
+    if (!ACC.user) { MM.afterLogin = () => $('rkQueue').click(); accountModal(Object.keys(ACC.list).length ? 'login' : 'register', 'Dereceli oynamak için giriş yap ya da kayıt ol. LP hesabına yazılır.'); return; }
     if (needTeam(() => $('rkQueue').click())) return;
     rkStatus('Lobiye bağlanılıyor…', true);
     if (!await lobbyJoin()) return;
@@ -1345,7 +1484,7 @@
     if (!OM || OM.phase !== 'draft') { if (bar) bar.remove(); return; }
     if (!bar) { bar = document.createElement('div'); bar.id = 'onBar'; bar.className = 'on-bar'; document.body.appendChild(bar); }
     const left = Math.max(0, Math.ceil((OM.deadline - Date.now()) / 1000));
-    bar.innerHTML = `<div class="ob-l"><span class="chip gold">${OM.ranked ? 'DERECELİ' : 'ÖZEL ODA'}</span><span class="ob-vs">${esc(S.team.name || 'Sen')} <i>vs</i> <span class="badge sm" style="--c:${OM.opp.color}">${esc(OM.opp.tag)}</span> ${esc(OM.opp.name)} <small>${rankLabel(OM.opp.lp)}</small></span></div>
+    bar.innerHTML = `<div class="ob-l"><span class="chip gold">${OM.ranked ? 'DERECELİ' : 'ÖZEL ODA'}</span><span class="ob-vs">${esc(S.team.name || 'Sen')} <i>vs</i> <span class="badge sm" style="--c:${OM.opp.color}">${esc(OM.opp.tag)}</span> ${esc(OM.opp.name)} <small>${esc(OM.opp.user || '')} · ${rankLabel(OM.opp.lp)}</small></span></div>
       <div class="ob-t${left <= 30 ? ' hot' : ''}">${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}</div>
       <div class="ob-r"><span class="${OM.oppReady ? 'ok' : ''}">Rakip: ${OM.oppReady ? 'HAZIR ✓' : 'takımını kuruyor…'}</span><span class="${OM.myReady ? 'ok' : ''}">Sen: ${OM.myReady ? 'HAZIR ✓' : 'kuruyor'}</span></div>`;
   }
