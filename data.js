@@ -488,10 +488,30 @@
     return magic ? 'mage' : 'fighter';
   }
 
+  const KS_TREE = { 8005: 8000, 8008: 8000, 8021: 8000, 8010: 8000, 8112: 8100, 8128: 8100, 9923: 8100, 8214: 8200, 8229: 8200, 8230: 8200, 8992: 8200, 8437: 8400, 8439: 8400, 8465: 8400, 8351: 8300, 8360: 8300, 8369: 8300 };
+  const PRO = () => (typeof window !== 'undefined' ? window : globalThis).MayhemPro;
   function buildFor(c) {
     const cls = classOf(c);
     const b = { ...BUILDS[cls], ...(BUILD_OVERRIDES[c.id] || {}) };
-    const alt = [...new Set([...BUILDS[cls].core, ...BUILDS[cls].alt])].filter(id => !b.core.includes(id));
+    let alt = [...new Set([...BUILDS[cls].core, ...BUILDS[cls].alt])].filter(id => !b.core.includes(id));
+    // Pro maçlardan öğrenilen build (yeterli örnek varsa)
+    const pro = PRO() && PRO().champs[c.id];
+    if (pro && pro.n >= 3) {
+      const items = pro.core.filter(id => ITEM_FX[id] && ITEM_FX[id].cat !== 'boots');
+      if (items.length >= 3) {
+        const core = items.slice(0, 4);
+        for (const id of b.core) if (core.length < 4 && !core.includes(id)) core.push(id);
+        alt = [...new Set([...items.slice(4), ...b.core, ...alt])].filter(id => !core.includes(id));
+        b.core = core;
+      }
+      if (pro.boots && ITEM_FX[pro.boots]) b.boots = pro.boots;
+      if (pro.keystone && KEYSTONES[pro.keystone]) {
+        b.keystone = pro.keystone;
+        if (KS_TREE[b.keystone] === b.secondary) b.secondary = KS_TREE[b.keystone] === 8400 ? 8300 : 8400;
+      }
+      if (pro.summ && pro.summ.length) b.summ = [...new Set([...pro.summ, ...b.summ])].slice(0, 3);
+      b.pro = { n: pro.n, wr: pro.wr };
+    }
     return { ...b, alt };
   }
 

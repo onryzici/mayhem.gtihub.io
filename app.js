@@ -403,7 +403,7 @@
           ${stat('Yetenek Hızı', base.ah, cur.ah)}
         </div>
         <div class="fit">
-          Build uyumu: <b style="color:${fi.color}">${r.items.length ? fi.label : '—'}</b>
+          Build uyumu: <b style="color:${fi.color}">${r.items.length ? fi.label : '—'}</b>${D.buildFor(c).pro ? ` <span class="chip gold" style="margin-left:6px" title="Önerilen build pro maçlardan">PRO · ${D.buildFor(c).pro.n} maç · %${Math.round(D.buildFor(c).pro.wr * 100)} kazanma</span>` : ''}
           <div class="meter" style="--fc:${fi.color}">${Array.from({ length: ITEM_SLOTS }, (_, i) => `<i class="${i < fi.fit ? 'on' : ''}"></i>`).join('')}</div>
           ${fi.warn ? `<div style="margin-top:8px;color:#fca5a5;font-size:12px;line-height:1.45">⚠ ${fi.warn}</div>` : ''}
         </div>
@@ -582,7 +582,15 @@
     const used = new Set();
     const roster = D.ROLES.map(role => {
       const pool = D.ROLE_POOLS[role].filter(id => S.champs[id] && !used.has(id));
-      const id = pool[Math.floor(Math.random() * pool.length)];
+      let id = pool[Math.floor(Math.random() * pool.length)];
+      // pro draft: rolde pro maçlarda sık seçilenleri ağırlıkla al
+      const pp = window.MayhemPro && window.MayhemPro.pool[role];
+      if (pp && Math.random() < 0.85) {
+        const cand = Object.entries(pp).filter(([c]) => S.champs[c] && !used.has(c));
+        const tot = cand.reduce((t, [, n]) => t + n, 0);
+        let r = Math.random() * tot;
+        for (const [c, n] of cand) { r -= n; if (r <= 0) { id = c; break; } }
+      }
       used.add(id);
       const champ = S.champs[id];
       const lo = defaultLoadout(champ, role);

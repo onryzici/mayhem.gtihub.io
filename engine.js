@@ -25,6 +25,13 @@
   const LANING_END = 110;
   const CARRY = { marksman: 1, onhit: 1, caster: 1, mage: 1, apAssassin: 1, assassin: 1, battlemage: 1 };
   const SMITE_DMG = 900;
+  // Pro maç istatistiklerinden rol davranışı: çok ölen rol daha gözü kara, skora çok katılan rol daha çok rotasyon yapar
+  function roleAI(role) {
+    const R = root.MayhemPro && root.MayhemPro.roles && root.MayhemPro.roles[role];
+    if (!R) return { retreat: 0.38, help: 1 };
+    const ds = R.deathShare / 0.2, kp = R.kp / 0.6;
+    return { retreat: clamp(0.38 / Math.pow(ds, 0.8), 0.27, 0.5), help: clamp(kp, 0.75, 1.3) };
+  }
   // Kuleler (mavi taraf; kırmızı aynalanır) ve Nexus
   const TOWER_DEFS = [{ lane: 'top', x: 330, y: 125 }, { lane: 'mid', x: 360, y: 425 }, { lane: 'adc', x: 395, y: 700 }];
   const TOWER = { hp: 5000, ad: 460, range: 215, r: 30, gold: 250 };
@@ -432,7 +439,7 @@
       const killable = foes.some(o => o.hp / o.maxHp < 0.22 && dist(o, u) < 320);
       const shotBy = this.structures.find(s => s.isTower && !s.dead && s.target === u);
       if (shotBy && pct < 0.6 && !killable) { u.mode = 'retreat'; u.goal = { x: u.x + (u.x - shotBy.x) * 1.5 + (FOUNTAIN[u.side].x - u.x) * 0.3, y: u.y + (u.y - shotBy.y) * 0.8 }; return; }
-      if (!killable && (pct < 0.38 || (pct < 0.45 && odds < 0.8 && foes.length) || (pct < 0.6 && odds < 0.45 && foes.length))) {
+      if (!killable && (pct < u.rai.retreat || (pct < 0.45 && odds < 0.8 && foes.length) || (pct < 0.6 && odds < 0.45 && foes.length))) {
         u.mode = 'recall'; u.target = null; u.recallAt = 0;
         return;
       }
@@ -460,7 +467,7 @@
         return;
       }
       // yardıma koş: yakındaki dost çatışmada ve kazanılabilir
-      let help = null, hd = u.role === 'jungle' ? 950 : u.role === 'support' ? 620 : this.t < LANING_END ? 430 : 700;
+      let help = null, hd = (u.role === 'jungle' ? 950 : u.role === 'support' ? 620 : this.t < LANING_END ? 430 : 700) * u.rai.help;
       for (const a of this.alliesOf(u)) {
         if (a === u || a.realm || this.inFountain(a, a.side)) continue;
         const d = dist(a, u);
@@ -602,7 +609,7 @@
         ranged: st.range >= 300, rangePx: st.range * RANGE_SCALE,
         atkCd: rnd(0, 0.4), qCd: rnd(1.5, 3), eCd: rnd(3, 6),
         energy: rnd(0, 15), ultTime: rnd(14, 18), ultReadySince: -1,
-        mode: null, goal: null, camp: null, thinkT: rnd(0, 0.3), combatStart: 0, lastHit: -10, recallAt: 0, tradeAt: rnd(7, 14),
+        rai: roleAI(m.role), mode: null, goal: null, camp: null, thinkT: rnd(0, 0.3), combatStart: 0, lastHit: -10, recallAt: 0, tradeAt: rnd(7, 14),
         power: 0.85 + 0.03 * (MAGIC_CLASSES[cls] ? m.champ.info.magic : m.champ.info.attack),
         st0: st,
         // durumlar
