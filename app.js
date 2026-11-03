@@ -21,7 +21,7 @@
     tagTouched: false,
     draft: { idx: 0, options: [], rerolls: 3 },
     loIdx: 0, loTab: 'items',
-    tour: null, speed: 1, autoUlt: false
+    tour: null, speed: 1, autoUlt: true
   };
 
   // ---------- yardımcılar ----------
@@ -232,9 +232,11 @@
     return `${det ? `<img src="${det.ultIcon}" alt="">` : '<img alt="" style="opacity:0">'}<div><b>R · ${det ? esc(det.ultName) : '…'}</b><span>${esc(D.ultDesc(c))}</span></div>`;
   }
 
-  function defaultLoadout(c) {
+  // Ormancı her zaman Çarp taşır
+  const roleSumms = (role, b) => role === 'jungle' ? ['SummonerSmite', b.summ.includes('SummonerFlash') ? 'SummonerFlash' : b.summ[0]] : b.summ.filter(x => x !== 'SummonerSmite').slice(0, 2);
+  function defaultLoadout(c, role) {
     const b = D.buildFor(c);
-    return { boots: b.boots, items: [...new Set([...b.core, ...b.alt])].slice(0, ITEM_SLOTS), keystone: b.keystone, secondary: b.secondary, summs: b.summ.slice() };
+    return { boots: b.boots, items: [...new Set([...b.core, ...b.alt])].slice(0, ITEM_SLOTS), keystone: b.keystone, secondary: b.secondary, summs: roleSumms(role, b) };
   }
 
   $('picks').addEventListener('click', e => {
@@ -243,7 +245,7 @@
     const c = S.draft.options[+b.dataset.i];
     const idx = S.draft.idx;
     const b0 = D.buildFor(c);
-    S.team.roster[idx] = { role: D.ROLES[idx], champ: c, boots: null, items: [], keystone: b0.keystone, secondary: b0.secondary, summs: b0.summ.slice() };
+    S.team.roster[idx] = { role: D.ROLES[idx], champ: c, boots: null, items: [], keystone: b0.keystone, secondary: b0.secondary, summs: roleSumms(D.ROLES[idx], b0) };
     S.team.roster.length = idx + 1;
     detail(c.id);
     if (idx === 4) { S.loIdx = 0; S.loTab = 'items'; renderLoadout(); show('loadout'); return; }
@@ -457,10 +459,10 @@
     const b = e.target.closest('.slot');
     if (b && $('loadout').classList.contains('active') && S.team.roster[+b.dataset.i]) { S.loIdx = +b.dataset.i; renderLoadout(); }
   });
-  $('recOne').addEventListener('click', () => { Object.assign(S.team.roster[S.loIdx], defaultLoadout(S.team.roster[S.loIdx].champ)); renderLoadout(); });
+  $('recOne').addEventListener('click', () => { const r = S.team.roster[S.loIdx]; Object.assign(r, defaultLoadout(r.champ, r.role)); renderLoadout(); });
   $('recAll').addEventListener('click', () => {
     for (const r of S.team.roster) {
-      const d = defaultLoadout(r.champ);
+      const d = defaultLoadout(r.champ, r.role);
       if (!r.boots) r.boots = d.boots;
       for (const id of [...d.items, ...D.buildFor(r.champ).alt]) if (r.items.length < ITEM_SLOTS && !r.items.includes(id)) r.items.push(id);
       if (!r.keystone) r.keystone = d.keystone;
@@ -485,10 +487,10 @@
       const id = pool[Math.floor(Math.random() * pool.length)];
       used.add(id);
       const champ = S.champs[id];
-      const lo = defaultLoadout(champ);
+      const lo = defaultLoadout(champ, role);
       const b = D.buildFor(champ);
       if (Math.random() < 0.5 && b.alt.length) lo.items[4] = shuffle(b.alt).find(x => !lo.items.includes(x)) || lo.items[4];
-      if (Math.random() < 0.2) lo.items[2] = shuffle(Object.keys(M.ITEMS).map(Number).filter(x => M.ITEMS[x].cat !== 'boots' && !lo.items.includes(x)))[0];
+      if (Math.random() < 0.35 && b.alt.length > 1) lo.items[3] = shuffle(b.alt).find(x => !lo.items.includes(x)) || lo.items[3];
       return { role, champ, ...lo };
     });
     return { name, tag, color, roster };
@@ -657,8 +659,8 @@
     multi = {};
     const sim = new M.Sim([simTeam(S.team), simTeam(series.opp)], { manual: [!S.autoUlt, false] });
     const teams = [S.team, series.opp];
-    $('sbA').innerHTML = `${teamBadge(S.team)}<span class="tn">${esc(S.team.name)}</span><span class="k" id="kA">0</span>`;
-    $('sbB').innerHTML = `${teamBadge(series.opp)}<span class="tn">${esc(series.opp.name)}</span><span class="k" id="kB">0</span>`;
+    $('sbA').innerHTML = `${teamBadge(S.team)}<span class="tn">${esc(S.team.name)}</span><span class="obj" id="oA"></span><span class="k" id="kA">0</span>`;
+    $('sbB').innerHTML = `${teamBadge(series.opp)}<span class="tn">${esc(series.opp.name)}</span><span class="obj" id="oB"></span><span class="k" id="kB">0</span>`;
     $('sbSeries').textContent = series.bo === 1 ? `${ROUND_NAMES[S.tour.round]} · Tek maç` : `${ROUND_NAMES[S.tour.round]} · Maç ${series.game} · ${series.wins[0]}-${series.wins[1]}`;
     $('hudA').innerHTML = sim.units.filter(u => u.side === 0).map((u, i) => hudCard(u, 0, i)).join('');
     $('hudB').innerHTML = sim.units.filter(u => u.side === 1).map((u, i) => hudCard(u, 1, i)).join('');
@@ -673,7 +675,7 @@
         iconImg: u => u.isPet && u.petIcon ? img(u.petIcon) : img(icon(u.champ)),
         summIcon, itemIcon
       },
-      hooks: { onEnd: onGameEnd, onUlt: callout, onKill: onKill, onFrame: hudTick }
+      hooks: { onEnd: onGameEnd, onUlt: callout, onKill: onKill, onFrame: hudTick, onObjective }
     });
     hudT = 0;
   }
@@ -685,8 +687,11 @@
     hudT = 0.1;
     $('kA').textContent = sim.kills[0];
     $('kB').textContent = sim.kills[1];
-    const t = Math.floor(sim.t);
-    $('sbClock').textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+    const t = Math.min(M.GAME_LEN, Math.floor(sim.t));
+    $('sbClock').textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')} / ${Math.floor(M.GAME_LEN / 60)}:00`;
+    const obj = s => `<i style="--oc:#f97316" title="Ejder">${sim.drakes[s]}</i><i style="--oc:#a855f7" title="Baron">${sim.barons[s]}</i><i style="--oc:#facc15" title="Altın">${(sim.gold[s] / 1000).toFixed(1)}k</i>`;
+    $('oA').innerHTML = obj(0);
+    $('oB').innerHTML = obj(1);
     for (const u of sim.units) {
       if (u.isPet) continue;
       const el = document.querySelector(`.pc[data-uid="${u.uid}"]`);
@@ -745,11 +750,18 @@
     const m = multi[killer.uid] && sim.t - multi[killer.uid].t < 8 ? multi[killer.uid] : { n: 0 };
     m.n++; m.t = sim.t;
     multi[killer.uid] = m;
-    const ace = sim.champs(victim.side).every(u => u.dead && !u.reviveAt);
+    const ace = sim.champs(victim.side).every(u => u.dead);
     const names = ['', '', 'ÇİFTE SKOR!', 'ÜÇLÜ SKOR!', 'DÖRTLÜ SKOR!', 'PENTAKILL!'];
     if (m.n >= 2) announce(names[Math.min(5, m.n)], killer.champ.name, col);
     else if (e.first) announce('İLK KAN!', `${killer.champ.name} → ${victim.champ.name}`, col);
     else if (ace) announce('AS!', killer.side ? series.opp.name : S.team.name, col);
+  }
+
+  function onObjective(e) {
+    const m = e.m;
+    if (e.kind === 'spawn') { if (m.key === 'baron') announce('BARON NASHOR', 'Nehrin üstünde uyandı', m.color); else announce('EJDER', 'Nehrin altında belirdi', m.color); return; }
+    const team = e.side ? series.opp : S.team;
+    announce(m.key === 'baron' ? 'BARON ALINDI!' : 'EJDER ALINDI!', `${team.name} · ${e.u.champ.name}`, team.color);
   }
 
   $('hudA').addEventListener('click', e => {
@@ -788,7 +800,7 @@
   }
 
   function statTable(sim, teams) {
-    const list = sim.units.filter(u => !u.isPet);
+    const list = sim.units.filter(u => !u.isPet && !u.isMonster);
     const maxDmg = Math.max(...list.map(u => u.dmg), 1);
     const winners = list.filter(u => u.side === sim.winner);
     const score = u => u.dmg + u.kills * 600 + u.assists * 250 + u.heal * 0.6 + u.cc * 150;
@@ -828,7 +840,7 @@
       btn = `<button class="btn" id="seriesDone">${seriesWon && isFinal ? 'Kupayı al →' : 'Fikstüre dön →'}</button>`;
     }
     overlay(`
-      <div class="eyebrow">${ROUND_NAMES[S.tour.round]}${series.bo > 1 ? ` · Maç ${series.game}` : ''} · ${Math.floor(sim.t)} sn</div>
+      <div class="eyebrow">${ROUND_NAMES[S.tour.round]}${series.bo > 1 ? ` · Maç ${series.game}` : ''} · ${esc(S.team.tag)} ${sim.kills[0]} - ${sim.kills[1]} ${esc(series.opp.tag)} · Ejder ${sim.drakes[0]}-${sim.drakes[1]} · Baron ${sim.barons[0]}-${sim.barons[1]}</div>
       <h2>${title}</h2>
       <div class="muted">${sub}</div>
       ${statTable(sim, teams)}

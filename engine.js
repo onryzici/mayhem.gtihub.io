@@ -3,8 +3,28 @@
   const D = root.MayhemData;
   const W = 1400, H = 800, LEVEL = 18;
   const REALM = { x: W / 2, y: -700, r: 170 };
-  const RANGE_SCALE = 0.38, MS_SCALE = 0.5, HP_MULT = 1.75;
+  const RANGE_SCALE = 0.38, MS_SCALE = 0.5, HP_MULT = 2.2;
   const TAU = Math.PI * 2;
+  // Harita: 5 dakikalık maç, üsler, orman kampları ve destansı canavarlar
+  const GAME_LEN = 300;
+  const FOUNTAIN = [{ x: 70, y: H / 2 }, { x: W - 70, y: H / 2 }];
+  const FOUNTAIN_R = 170;
+  const CAMP_DEFS = [
+    { key: 'blue', name: 'Mavi Gözcü', x: 290, y: 215, hp: 2300, ad: 110, r: 34, respawn: 75, buff: 'blue', color: '#3b82f6', gold: 120 },
+    { key: 'red', name: 'Kızıl Gözcü', x: 330, y: 600, hp: 2300, ad: 125, r: 34, respawn: 75, buff: 'red', color: '#ef4444', gold: 120 },
+    { key: 'gromp', name: 'Kurbağa', x: 165, y: 195, hp: 1400, ad: 85, r: 28, respawn: 50, color: '#84cc16', gold: 80 },
+    { key: 'wolves', name: 'Kurtlar', x: 470, y: 270, hp: 1300, ad: 80, r: 26, respawn: 50, color: '#94a3b8', gold: 80 },
+    { key: 'krugs', name: 'Taşçıllar', x: 540, y: 655, hp: 1550, ad: 70, r: 28, respawn: 50, color: '#b45309', gold: 80 }
+  ];
+  const EPIC_DEFS = [
+    { key: 'dragon', name: 'Ejder', x: 697, y: 590, hp: 6500, ad: 190, r: 44, spawn: 50, respawn: 70, ranged: true, color: '#f97316', gold: 300 },
+    { key: 'baron', name: 'Baron Nashor', x: 685, y: 205, hp: 11000, ad: 260, r: 52, spawn: 150, respawn: 110, color: '#a855f7', gold: 500 }
+  ];
+  // Koridor bekleme noktaları (mavi taraf; kırmızı taraf aynalanır)
+  const LANE_POS = { top: [515, 125], mid: [520, 415], adc: [505, 700], support: [540, 668], jungle: [420, 420] };
+  const LANING_END = 110;
+  const CARRY = { marksman: 1, onhit: 1, caster: 1, mage: 1, apAssassin: 1, assassin: 1, battlemage: 1 };
+  const SMITE_DMG = 900;
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const rnd = (a, b) => a + Math.random() * (b - a);
@@ -55,6 +75,7 @@
     }
     if (st.fx.yuntal) st.crit += 0.25;
     if (st.fx.muramana) st.bonusAd += 60;
+    if (st.fx.bloodmail) st.bonusAd += Math.max(0, st.hp - (s.hp + lvGrowth(s.hpperlevel))) * st.fx.bloodmail;
     const sec = D.SECONDARY[loadout.secondary];
     if (sec) {
       const b = sec.bonus;
@@ -95,18 +116,357 @@
       this.manual = opts.manual || [false, false];
       this.ultRequests = new Set();
       this.nextUid = 0;
+      this.gold = [0, 0];
+      this.drakes = [0, 0];
+      this.barons = [0, 0];
+      this.plans = [null, null];
+      this.planT = 0;
+      this.monsters = [];
       teams.forEach((team, side) => team.roster.forEach((m, i) => this.units.push(this.makeUnit(m, side, i))));
+      for (const side of [0, 1]) for (const def of CAMP_DEFS) this.addMonster(def, side, { x: side ? W - def.x : def.x, y: def.y });
+      for (const def of EPIC_DEFS) this.addMonster(def, -1, { x: def.x, y: def.y });
+    }
+
+    // ---------- orman ----------
+    addMonster(def, campSide, home) {
+      const st = { hp: def.hp, ad: def.ad, bonusAd: 0, ap: 0, armor: def.spawn ? 60 : 35, mr: def.spawn ? 60 : 35, asBase: 0.8, asBonus: 0, as: 0.8, crit: 0, ls: 0, ah: 0, ms: 300, range: 100, fx: {} };
+      const m = {
+        uid: this.nextUid++, side: 2, isMonster: true, def, key: def.key, campSide, name: def.name, color: def.color, epic: !!def.spawn,
+        st, st0: st, cls: 'monster', role: 'monster', champ: null, items: [], keystone: 0, summs: [], ult: null, power: 1,
+        x: home.x, y: home.y, home, r: def.r, facing: campSide === 1 ? 0 : Math.PI,
+        maxHp: def.hp, hp: def.hp, shields: [], ranged: !!def.ranged, rangePx: def.ranged ? 170 : 20,
+        atkCd: 0.5, energy: 0,
+        stun: 0, root: 0, sleep: 0, suppress: 0, stasis: 0, banish: 0, untarget: 0, invis: 0,
+        fear: null, charm: null, berserk: 0, slowAmt: 0, slowUntil: 0, air: null, dash: null, realm: 0, inside: null, hidden: false,
+        buffs: [], mod: null, dead: !!def.spawn, reviveAt: 0, deathT: 0, spawnAt: def.spawn || 0,
+        target: null, retarget: 0, lastHurt: -10, lastHurtBy: {}, attacks: 0, hitsOn: {},
+        spellblade: false, shred: 0, grievousUntil: 0, exhaustedUntil: 0, vulnUntil: 0, rune: {}, used: {}, summCd: {}, history: [],
+        kills: 0, deaths: 0, assists: 0, dmg: 0, taken: 0, heal: 0, cc: 0, flash: 0, lunge: 0, scale: 1
+      };
+      this.recalc(m);
+      this.units.push(m);
+      this.monsters.push(m);
+      return m;
+    }
+
+    updateMonster(m, dt) {
+      if (m.dead) {
+        if (m.spawnAt && this.t >= m.spawnAt) {
+          m.dead = false; m.spawnAt = 0; m.hp = m.maxHp; m.x = m.home.x; m.y = m.home.y; m.target = null; m.lastHurtBy = {}; m.shields = []; m.burns = [];
+          if (m.epic) this.emit({ t: 'objective', kind: 'spawn', m });
+        }
+        return;
+      }
+      for (const k of ['stun', 'root', 'sleep', 'suppress', 'stasis', 'banish', 'untarget', 'invis']) if (m[k] > 0) m[k] -= dt;
+      if (m.flash > 0) m.flash -= dt;
+      if (m.lunge > 0) m.lunge -= dt;
+      if (m.burns && m.burns.length) {
+        for (const b of m.burns) {
+          b.left -= dt; b.acc += dt;
+          if (b.acc >= 0.5) { b.acc -= 0.5; this.damage(b.src, m, b.dps * 0.5, b.type || 'magic', { quiet: true, dot: true }); if (m.dead) return; }
+        }
+        m.burns = m.burns.filter(b => b.left > 0);
+      }
+      const leash = m.epic ? 330 : 260;
+      // saldırgan: son vuran ve hâlâ yakındaki şampiyon
+      let tg = m.target;
+      if (!tg || tg.dead || tg.realm || !this.targetable(tg) || dist(tg, m.home) > leash + 60 || this.t - (m.lastHurt || 0) > 5) {
+        tg = null;
+        let best = -Infinity;
+        for (const uid in m.lastHurtBy) {
+          if (this.t - m.lastHurtBy[uid] > 4) continue;
+          const o = this.units.find(x => x.uid === +uid);
+          if (!o || o.dead || o.isMonster || o.realm || !this.targetable(o) || dist(o, m.home) > leash) continue;
+          const sc = m.lastHurtBy[uid] - dist(o, m) * 0.002;
+          if (sc > best) { best = sc; tg = o; }
+        }
+        m.target = tg;
+      }
+      if (!tg) {
+        // yuvaya dön ve canını yenile
+        const d = dist(m, m.home);
+        if (d > 4) this.moveToward(m, m.home, dt * 1.6, 0);
+        if (this.t - m.lastHurt > 3) m.hp = Math.min(m.maxHp, m.hp + m.maxHp * 0.25 * dt);
+        return;
+      }
+      m.facing = Math.atan2(tg.y - m.y, tg.x - m.x);
+      m.atkCd -= dt;
+      if (m.stun > 0) return;
+      const d = dist(m, tg), reach = m.rangePx + m.r + tg.r;
+      if (d > reach) { if (dist(m, m.home) < leash) this.moveToward(m, tg, dt, reach - 2); return; }
+      if (m.atkCd <= 0) {
+        m.atkCd = 1 / m.st.as;
+        m.lunge = 0.14;
+        const dmg = m.st.ad * (1 + Math.min(0.6, Math.max(0, this.t - 60) / 400));
+        if (m.ranged) {
+          this.shoot(m, tg, { speed: 900, kind: 'spell', color: m.color, big: true, onHit: () => {
+            this.emit({ t: 'blast', x: tg.x, y: tg.y, r: 70, color: m.color });
+            for (const o of this.enemiesOf(m)) if (!o.isPet && dist(o, tg) < 70 + o.r) this.damage(m, o, dmg, 'magic', { aoe: true });
+          } });
+        } else {
+          this.emit({ t: 'swing', u: m, tg, crit: false });
+          this.damage(m, tg, dmg, 'physical', { basic: true });
+          if (m.key === 'baron') {
+            this.emit({ t: 'pulse', x: tg.x, y: tg.y, r: 110, color: m.color, u: m });
+            for (const o of this.enemiesOf(m)) if (o !== tg && dist(o, tg) < 110) this.damage(m, o, dmg * 0.45, 'magic', { quiet: true, aoe: true });
+          }
+        }
+      }
+    }
+
+    killMonster(src, m) {
+      m.dead = true; m.hp = 0; m.deathT = this.t; m.spawnAt = this.t + m.def.respawn; m.burns = []; m.target = null;
+      this.projs = this.projs.filter(p => p.tg !== m);
+      let killer = src.isPet ? src.owner : src;
+      if (!killer || killer.isMonster || killer.side > 1) return;
+      const side = killer.side;
+      this.gold[side] += m.def.gold;
+      killer.energy += m.epic ? 30 : 12;
+      this.heal(killer, killer, killer.maxHp * (m.epic ? 0.1 : 0.12), true);
+      if (m.def.buff === 'blue') this.addBuff(killer, { key: 'blue', dur: 90, ah: 40, regen: 0.004, keep: false });
+      if (m.def.buff === 'red') this.addBuff(killer, { key: 'red', dur: 90, red: 1, regen: 0.004 });
+      if (m.key === 'dragon') {
+        const n = ++this.drakes[side];
+        for (const c of this.champs(side)) this.addBuff(c, { key: 'drake', dur: 9999, amp: 0.06 * n, dr: 0.03 * n, keep: true });
+      }
+      if (m.key === 'baron') {
+        this.barons[side]++;
+        for (const c of this.champs(side)) if (!c.dead) this.addBuff(c, { key: 'baron', dur: 60, amp: 0.2, regen: 0.01, ms: 0.08, glow: true, color: '#a855f7' });
+      }
+      this.emit({ t: 'monsterKill', m, u: killer, side });
+      if (m.epic) this.emit({ t: 'objective', kind: 'kill', m, u: killer, side });
+    }
+
+    // Takımın bu canavarla uğraşan / yakındaki rakip şampiyonları
+    foesNear(side, p, r) { return this.units.filter(o => (o.side === 1 - side) && !o.isPet && !o.dead && !o.realm && dist(o, p) < r); }
+    friendsNear(side, p, r) { return this.units.filter(o => o.side === side && !o.isPet && !o.dead && !o.realm && dist(o, p) < r); }
+    inFountain(o, side) { return dist(o, FOUNTAIN[side]) < FOUNTAIN_R; }
+    lanePos(u) {
+      const p = LANE_POS[u.role] || LANE_POS.mid;
+      return { x: u.side ? W - p[0] : p[0], y: p[1] };
+    }
+    strength(o) {
+      if (o.dead) return 0;
+      let s = (o.hp + this.shieldOf(o)) / o.maxHp * o.power;
+      if (o.energy >= 100) s *= 1.25;
+      if (o.mod && o.mod.amp) s *= 1 + o.mod.amp;
+      return s;
+    }
+    sideOdds(side, p, r, extra = 0) {
+      let a = extra, b = 0;
+      for (const o of this.units) {
+        if (o.isPet || o.isMonster || o.dead || o.realm || dist(o, p) > r) continue;
+        if (o.side === side) a += this.strength(o); else b += this.strength(o);
+      }
+      return (a + 0.05) / (b + 0.05);
+    }
+    // Yakındaki güç dengesi: >1 lehimize
+    odds(u, r) {
+      let a = 0, b = 0;
+      for (const o of this.units) {
+        if (o.isPet || o.isMonster || o.dead || o.realm || dist(o, u) > r) continue;
+        if (o.side === u.side) a += this.strength(o); else b += this.strength(o);
+      }
+      return (a + 0.05) / (b + 0.05);
+    }
+
+    updatePlans() {
+      for (const side of [0, 1]) {
+        const mine = this.champs(side).filter(o => !o.dead).length;
+        const theirs = this.champs(1 - side).filter(o => !o.dead).length;
+        const diff = mine - theirs;
+        let plan = null;
+        for (const m of this.monsters) {
+          if (!m.epic || m.dead) continue;
+          const enemyOn = this.foesNear(side, m, 450).length;
+          const ourOn = this.friendsNear(side, m, 600).length;
+          const hit = m.hp < m.maxHp - 1 && this.t - m.lastHurt < 3;
+          let want = false;
+          if (m.key === 'dragon') want = mine >= 3 && diff >= 0;
+          if (m.key === 'baron') want = (mine >= 3 && diff >= 2) || (mine >= 4 && diff >= 1) || (this.t > 230 && mine >= 4 && diff >= 0);
+          // rakip canavara başladıysa ve sayıca yetişebiliyorsak itiraz et
+          if (hit && enemyOn > 0 && mine >= enemyOn) want = true;
+          if (want && ourOn >= 2 && enemyOn >= ourOn + 2) want = false;
+          if (want && (!plan || m.key === 'baron')) plan = m;
+        }
+        this.plans[side] = plan;
+      }
+    }
+
+    pickCamp(u) {
+      let best = null, bs = Infinity;
+      for (const m of this.monsters) {
+        if (m.dead || m.epic) continue;
+        const enemyJg = m.campSide !== u.side;
+        const threat = this.foesNear(u.side, m, 520).length;
+        if (threat > 0 && enemyJg) continue;
+        if (threat > 1) continue;
+        if (enemyJg && (u.hp / u.maxHp < 0.6 || this.sideOdds(u.side, m, 700) < 1)) continue;
+        let s = dist(u, m) - (m.def.buff ? 160 : 0) + (enemyJg ? 380 : 0);
+        if (s < bs) { bs = s; best = m; }
+      }
+      return best;
+    }
+
+    // Makro karar: savaş, geri çekil, üsse dön, orman, hedef, koridor
+    think(u) {
+      const pct = u.hp / u.maxHp;
+      const home = FOUNTAIN[u.side];
+      if (u.mode === 'recall') {
+        if (pct >= 0.95 || (pct > 0.75 && this.inFountain(u, u.side))) { u.mode = null; u.used = { ga: u.used.ga }; }
+        else return;
+      }
+      const engageR = (u.ranged ? 430 : 380) + (u.cls === 'assassin' || u.cls === 'engage' || u.cls === 'apAssassin' ? 70 : 0);
+      const foes = this.enemiesOf(u).filter(o => !o.isPet && dist(o, u) < engageR && !this.inFountain(o, o.side));
+      const odds = this.odds(u, 600);
+      const killable = foes.some(o => o.hp / o.maxHp < 0.22 && dist(o, u) < 320);
+      if (!killable && (pct < 0.25 || (pct < 0.45 && odds < 0.8 && foes.length) || (pct < 0.6 && odds < 0.45 && foes.length))) {
+        u.mode = 'recall'; u.target = null; u.recallAt = 0;
+        return;
+      }
+      if (foes.length) {
+        const committed = u.mode === 'fight' && this.t - Math.max(u.lastHurt, u.lastHit) < 2.5;
+        // koridor evresi: yerini tut, fırsat ya da takas zamanı gelince vur
+        const jgl = u.role === 'jungle';
+        if (this.t < LANING_END && !committed && (jgl || dist(u, this.lanePos(u)) < 300)) {
+          const close = foes.some(o => dist(o, u) < 240 || (o.target === u && this.t - u.lastHurt < 1));
+          const edge = foes.some(o => pct - o.hp / o.maxHp > 0.22);
+          const nf = foes.reduce((a, o) => (dist(o, u) < dist(a, u) ? o : a), foes[0]);
+          const lo = this.sideOdds(u.side, { x: (u.x + nf.x) / 2, y: (u.y + nf.y) / 2 }, 330);
+          const trade = !jgl && this.t >= u.tradeAt && lo >= 0.85;
+          if (!(close || killable || edge || lo >= 1.6 || trade)) {
+            if (jgl) { u.mode = null; this.thinkFarm(u, pct); return; }
+            const lp = this.lanePos(u);
+            u.mode = 'move'; u.goal = { x: lp.x, y: lp.y };
+            return;
+          }
+          u.tradeAt = this.t + rnd(9, 17);
+        }
+        if (odds >= 0.7 || killable || (committed && odds >= 0.5) || pct > 0.8 && odds >= 0.55) { u.mode = 'fight'; return; }
+        // kötü savaş: geri çekil ama düşmanı vurmaya devam edebilmek için kısa
+        u.mode = 'retreat'; u.goal = { x: u.x + (home.x - u.x) * 0.35, y: u.y + (home.y - u.y) * 0.35 };
+        return;
+      }
+      // yardıma koş: yakındaki dost çatışmada ve kazanılabilir
+      let help = null, hd = u.role === 'jungle' ? 950 : u.role === 'support' ? 620 : this.t < LANING_END ? 430 : 700;
+      for (const a of this.alliesOf(u)) {
+        if (a === u || a.realm || this.inFountain(a, a.side)) continue;
+        const d = dist(a, u);
+        if (d > hd) continue;
+        const near = this.enemiesOf(a).filter(o => !o.isPet && dist(o, a) < 360);
+        if (!near.length) continue;
+        if (this.odds(a, 650) + this.strength(u) * 0.5 < 0.55 && pct < 0.6) continue;
+        help = near[0]; hd = d;
+      }
+      if (help) { u.mode = 'move'; u.goal = { x: help.x, y: help.y }; return; }
+      // takım hedefi (ejder / baron)
+      const plan = this.plans[u.side];
+      if (plan && !plan.dead && pct > 0.4) {
+        if (dist(u, plan) < 280) { u.mode = 'camp'; u.camp = plan; }
+        else { u.mode = 'move'; u.goal = { x: plan.x + (u.side ? 90 : -90), y: plan.y + (plan.y > H / 2 ? -40 : 40) }; }
+        return;
+      }
+      // ormancı: kamp temizle ya da zayıf rakibe baskın
+      if (u.role === 'jungle') {
+        let gank = null, gd = 950;
+        for (const o of this.enemiesOf(u)) {
+          if (o.isPet || o.realm || this.inFountain(o, o.side) || o.hp / o.maxHp > 0.6) continue;
+          const d = dist(o, u);
+          if (d < gd && this.sideOdds(u.side, o, 600, this.strength(u)) > 1.25) { gd = d; gank = o; }
+        }
+        if (gank) { u.mode = 'move'; u.goal = { x: gank.x, y: gank.y }; return; }
+        if (this.thinkFarm(u, pct)) return;
+      }
+      // koridor rakibi öldüyse yakındaki kampı al ya da orta koridora destek
+      const lp = this.lanePos(u);
+      if (u.role !== 'jungle' && pct > 0.55) {
+        const laneFoes = this.foesNear(u.side, lp, 520).length;
+        if (!laneFoes && this.t > 20) {
+          const c = this.monsters.find(m => !m.dead && !m.epic && m.campSide === u.side && dist(m, u) < 360 && !this.friendsNear(u.side, m, 200).some(a => a.role === 'jungle'));
+          if (c && u.role !== 'support') { u.camp = c; u.mode = dist(u, c) < 200 ? 'camp' : 'move'; u.goal = { x: c.x, y: c.y }; return; }
+        }
+      }
+      if (pct < 0.6 && this.t - u.lastHurt > 3) { u.mode = 'recall'; u.recallAt = 0; return; }
+      u.mode = 'move';
+      u.goal = { x: lp.x + (u.uid % 3 - 1) * 14, y: lp.y + (u.uid % 2 ? 12 : -12) };
+    }
+
+    thinkFarm(u, pct) {
+      const c = u.camp && !u.camp.dead && !u.camp.epic && this.foesNear(u.side, u.camp, 520).length === 0 ? u.camp : this.pickCamp(u);
+      if (c) {
+        u.camp = c;
+        u.mode = dist(u, c) < 200 ? 'camp' : 'move';
+        if (u.mode === 'move') u.goal = { x: c.x, y: c.y };
+        return true;
+      }
+      const lp = this.lanePos(u);
+      u.mode = 'move'; u.goal = { x: lp.x, y: lp.y };
+      return false;
+    }
+
+    // Savaş dışı hareket
+    macroMove(u, dt) {
+      const home = FOUNTAIN[u.side];
+      if (u.mode === 'recall') {
+        const threat = this.enemiesOf(u).some(o => !o.isPet && dist(o, u) < 520);
+        if (this.inFountain(u, u.side)) return;
+        if (!threat && this.t - u.lastHurt > 1.5) {
+          if (!u.recallAt) { u.recallAt = this.t + 3.5; this.emit({ t: 'recall', u }); }
+          if (this.t >= u.recallAt) {
+            this.emit({ t: 'impact', x: u.x, y: u.y, r: 46, color: '#60a5fa' });
+            u.x = home.x + rnd(-30, 30); u.y = home.y + rnd(-30, 30);
+            u.recallAt = 0;
+            this.emit({ t: 'impact', x: u.x, y: u.y, r: 46, color: '#60a5fa' });
+          }
+          return;
+        }
+        u.recallAt = 0;
+        this.moveToward(u, home, dt, 20);
+        return;
+      }
+      if (u.mode === 'camp' && u.camp && !u.camp.dead) {
+        const m = u.camp;
+        u.target = m;
+        const d = dist(u, m), reach = this.rangePx(u) + u.r + m.r;
+        u.facing = Math.atan2(m.y - u.y, m.x - u.x);
+        if (d > reach) { if (u.root <= 0) this.moveToward(u, m, dt, reach - 2); return; }
+        if (u.atkCd <= 0) { u.atkCd = 1 / this.as(u); this.basicAttack(u, m); }
+        if (u.qCd <= 0) {
+          u.qCd = this.abilityCd(u, this.qBase(u));
+          const magic = this.isMagic(u);
+          this.emit({ t: 'blast', x: m.x, y: m.y, r: 70, color: magic ? '#b48cff' : '#f5a524' });
+          this.damage(u, m, this.abilityBase(u) * 1.2, magic ? 'magic' : 'physical', { ability: true });
+          if (u.cls === 'fighter' || u.cls === 'apBruiser' || u.cls === 'tank') this.heal(u, u, u.maxHp * 0.03, true);
+        }
+        return;
+      }
+      if (u.goal) {
+        if (u.mode === 'retreat' && this.t - u.lastHurt > 2.5) u.mode = null;
+        this.moveToward(u, u.goal, dt, 8);
+      }
+    }
+
+    respawn(u) {
+      const home = FOUNTAIN[u.side];
+      u.dead = false; u.reviveAt = 0; u.respawnHome = false;
+      u.x = home.x + rnd(-35, 35); u.y = home.y + rnd(-45, 45);
+      u.buffs = u.buffs.filter(b => b.keep);
+      this.recalc(u);
+      u.hp = u.maxHp;
+      u.stun = u.root = u.sleep = u.suppress = u.berserk = 0; u.fear = u.charm = null; u.slowUntil = 0;
+      u.shields = []; u.burns = []; u.dash = null; u.air = null; u.channel = null; u.cage = null;
+      u.used = { ga: u.used.ga }; u.hitsOn = {}; u.shred = 0;
+      u.mode = null; u.target = null; u.camp = null; u.thinkT = 0;
+      this.emit({ t: 'respawn', u });
     }
 
     // ---------- kurulum ----------
     makeUnit(m, side, i) {
       const st = computeStats(m.champ, m);
       const cls = D.classOf(m.champ);
-      const pos = {
-        top: [400, 260], jungle: [340, 600], mid: [330, 420], adc: [200, 380], support: [250, 500]
-      }[m.role] || [300, 200 + i * 100];
-      const x = side ? W - pos[0] : pos[0];
-      const y = pos[1] + rnd(-25, 25);
+      const ang = (i / 5) * TAU + (side ? Math.PI : 0);
+      const x = FOUNTAIN[side].x + Math.cos(ang) * 40;
+      const y = FOUNTAIN[side].y + Math.sin(ang) * 55;
       const u = {
         uid: this.nextUid++, side, champ: m.champ, role: m.role, cls, st, items: m.items || [],
         keystone: m.keystone, summs: (m.summs || []).slice(), ult: D.ultOf(m.champ), ultName: m.ultName || 'Ulti', ultIcon: m.ultIcon,
@@ -114,7 +474,8 @@
         maxHp: st.hp * HP_MULT, hp: st.hp * HP_MULT, shields: [],
         ranged: st.range >= 300, rangePx: st.range * RANGE_SCALE,
         atkCd: rnd(0, 0.4), qCd: rnd(1.5, 3), eCd: rnd(3, 6),
-        energy: rnd(0, 15), ultTime: rnd(11, 15), ultReadySince: -1,
+        energy: rnd(0, 15), ultTime: rnd(14, 18), ultReadySince: -1,
+        mode: null, goal: null, camp: null, thinkT: rnd(0, 0.3), combatStart: 0, lastHit: -10, recallAt: 0, tradeAt: rnd(7, 14),
         power: 0.85 + 0.03 * (MAGIC_CLASSES[cls] ? m.champ.info.magic : m.champ.info.attack),
         st0: st,
         // durumlar
@@ -136,7 +497,7 @@
     }
 
     recalc(u) {
-      const m = { ad: 0, as: 0, ms: 0, armor: 0, mr: 0, dr: 0, scale: 1, range: 0, ls: 0, amp: 0, unstoppable: false, undying: false, invuln: false, trueHit: 0, pierce: false, every3: 0, drain: 0, aura: 0, healAura: 0, hpRegen: 0 };
+      const m = { ah: 0, red: 0, ad: 0, as: 0, ms: 0, armor: 0, mr: 0, dr: 0, scale: 1, range: 0, ls: 0, amp: 0, unstoppable: false, undying: false, invuln: false, trueHit: 0, pierce: false, every3: 0, drain: 0, aura: 0, healAura: 0, hpRegen: 0 };
       for (const b of u.buffs) {
         m.ad += b.ad || 0; m.as += b.as || 0; m.ms += b.ms || 0; m.armor += b.armor || 0; m.mr += b.mr || 0;
         m.dr = 1 - (1 - m.dr) * (1 - (b.dr || 0));
@@ -149,6 +510,7 @@
         m.every3 = Math.max(m.every3, b.every3 || 0);
         m.drain = Math.max(m.drain, b.drain || 0);
         m.aura += b.aura || 0; m.healAura += b.healAura || 0; m.hpRegen += b.regen || 0;
+        m.ah += b.ah || 0; m.red = m.red || b.red || 0;
       }
       const classDr = { assassin: 0.15, apAssassin: 0.12, fighter: 0.05 }[u.cls] || 0;
       m.dr = 1 - (1 - m.dr) * (1 - classDr);
@@ -175,8 +537,9 @@
     sameRealm(a, b) { return a.realm === b.realm; }
     targetable(o) { return !o.dead && o.stasis <= 0 && o.banish <= 0 && o.untarget <= 0 && o.invis <= 0 && !o.inside && !(o.dash && o.dash.untargetable); }
     alliesOf(u, all) { return this.units.filter(o => o.side === u.side && !o.dead && this.sameRealm(u, o) && (all || !o.isPet)); }
-    enemiesOf(u, all) { return this.units.filter(o => o.side !== u.side && !o.dead && this.sameRealm(u, o) && (all || this.targetable(o))); }
+    enemiesOf(u, all) { return this.units.filter(o => o.side !== u.side && !o.isMonster && !o.dead && this.sameRealm(u, o) && (all || this.targetable(o))); }
     champs(side) { return this.units.filter(o => o.side === side && !o.isPet); }
+    ct(u) { return this.t - (u.combatStart || 0); }
 
     // ---------- statlar ----------
     ad(u) { return u.st.ad * (1 + u.mod.ad) + (u.rune.hubris || 0) + (u.st.fx.taste ? 0 : 0); }
@@ -184,7 +547,7 @@
     ap(u) { return u.st.ap; }
     as(u) {
       let bonus = u.mod.as + (u.rune.lethal || 0) * 0.06;
-      if (u.st.fx.yuntal && this.t < 4) bonus += 0.5;
+      if (u.st.fx.yuntal && this.ct(u) < 4) bonus += 0.5;
       if (u.keystone === 9923 && u.rune.hail > 0) bonus += 1.1;
       if (this.t < (u.asBuffUntil || 0)) bonus += u.asBuffAmt || 0;
       let as = u.st.asBase * (1 + u.st.asBonus + bonus);
@@ -196,17 +559,18 @@
       if (this.t < (u.msBuffUntil || 0)) ms *= 1 + (u.msBuffAmt || 0);
       if (this.t < u.slowUntil) ms *= 1 - u.slowAmt * (1 - (u.st.fx.slowResist || 0));
       if (this.t < u.exhaustedUntil) ms *= 0.7;
+      if (!u.isMonster && !u.isPet && this.t - u.lastHurt > 3 && this.t - (u.lastHit || -10) > 3) ms *= 1.3;
       return ms * MS_SCALE;
     }
     armor(u) {
       let a = u.st.armor * (1 + u.mod.armor);
-      if (u.st.fx.jaksho && this.t > 5) a *= 1 + u.st.fx.jaksho;
+      if (u.st.fx.jaksho && this.ct(u) > 5) a *= 1 + u.st.fx.jaksho;
       if (this.t < u.rune.aftershockUntil) a += 35 + 0.4 * (a);
       return a;
     }
     mr(u) {
       let m = u.st.mr * (1 + u.mod.mr);
-      if (u.st.fx.jaksho && this.t > 5) m *= 1 + u.st.fx.jaksho;
+      if (u.st.fx.jaksho && this.ct(u) > 5) m *= 1 + u.st.fx.jaksho;
       if (u.st.fx.forceOfNature) m *= 1 + Math.min(0.35, (u.fonStacks || 0) * 0.05);
       if (this.t < u.rune.aftershockUntil) m += 35 + 0.4 * m;
       return m;
@@ -228,7 +592,7 @@
     healBase(u) { return (180 + 0.6 * this.ap(u) + u.maxHp * 0.02) * (1 + (u.st.fx.moonstone || 0)); }
     ultType(u) { return this.isMagic(u) ? 'magic' : 'physical'; }
 
-    abilityCd(u, base) { return base * 100 / (100 + u.st.ah) * rnd(0.9, 1.1); }
+    abilityCd(u, base) { return base * 100 / (100 + u.st.ah + (u.mod.ah || 0)) * rnd(0.9, 1.1); }
 
     // ---------- döngü ----------
     step(dt) {
@@ -237,7 +601,10 @@
       for (let i = this.timers.length - 1; i >= 0; i--) {
         if (this.timers[i].at <= this.t) { const tm = this.timers.splice(i, 1)[0]; tm.fn(); }
       }
+      this.planT -= dt;
+      if (this.planT <= 0) { this.planT = 1; this.updatePlans(); }
       for (const u of this.units) this.updateUnit(u, dt);
+      this.fountains(dt);
       this.updateProjs(dt);
       this.updateZones(dt);
       this.updateBeams();
@@ -246,9 +613,28 @@
       this.checkEnd();
     }
 
+    fountains(dt) {
+      for (const u of this.units) {
+        if (u.dead || u.isMonster || u.realm) continue;
+        if (this.inFountain(u, u.side)) {
+          u.hp = Math.min(u.maxHp, u.hp + u.maxHp * 0.12 * dt);
+        } else if (u.side < 2 && this.inFountain(u, 1 - u.side)) {
+          u.fountT = (u.fountT || 0) - dt;
+          if (u.fountT <= 0) {
+            u.fountT = 0.4;
+            const f = FOUNTAIN[1 - u.side];
+            this.emit({ t: 'zap', from: { x: f.x, y: f.y - 30 }, to: u, color: '#fde68a' });
+            const src = this.champs(1 - u.side)[0];
+            if (src) this.damage(src, u, u.maxHp * 0.16, 'true', { quiet: true, fountain: true });
+          }
+        }
+      }
+    }
+
     updateUnit(u, dt) {
+      if (u.isMonster) { this.updateMonster(u, dt); return; }
       if (u.dead) {
-        if (u.reviveAt && this.t >= u.reviveAt) this.revive(u, u.reviveHp || 0.5);
+        if (u.reviveAt && this.t >= u.reviveAt) { if (u.respawnHome) this.respawn(u); else this.revive(u, u.reviveHp || 0.5); }
         return;
       }
       if (u.isPet && this.t > u.expires) { this.petExpire(u); return; }
@@ -296,9 +682,26 @@
       u.atkCd -= dt; u.qCd -= dt; u.eCd -= dt;
       u.retarget -= dt;
 
+      if (!u.isPet && !u.realm) {
+        u.thinkT -= dt;
+        if (u.thinkT <= 0) { u.thinkT = 0.3 + Math.random() * 0.12; this.think(u); }
+        if (u.mode !== 'fight') {
+          if (u.energy >= 100 && u.ultReadySince < 0) { u.ultReadySince = this.t; this.emit({ t: 'ultReady', u }); }
+          // kaçarken bile menzildeki düşmana E (kaçış) kullanılabilir
+          if (u.mode === 'retreat' || u.mode === 'recall') {
+            const near = this.enemiesOf(u).find(o => !o.isPet && dist(o, u) < 200);
+            if (near && u.eCd <= 0 && (u.cls === 'marksman' || u.cls === 'onhit' || u.cls === 'caster')) { if (this.castE(u, near, dist(u, near))) u.eCd = this.abilityCd(u, this.eBase(u)); }
+            if (near && u.atkCd <= 0 && dist(u, near) < this.rangePx(u) + u.r + near.r) { u.atkCd = 1 / this.as(u); this.basicAttack(u, near); }
+          }
+          if (!u.dash) this.macroMove(u, dt);
+          this.clampPos(u);
+          return;
+        }
+      }
+
       const tg = this.chooseTarget(u);
       if (!tg) {
-        // Hedef yoksa takımın ortasına doğru yürü
+        if (!u.isPet && !u.realm) { u.mode = null; u.thinkT = 0; }
         return;
       }
       u.target = tg;
@@ -309,7 +712,8 @@
         if (u.energy >= 100) {
           if (u.ultReadySince < 0) { u.ultReadySince = this.t; this.emit({ t: 'ultReady', u }); }
           const manual = this.manual[u.side];
-          const wants = !manual || this.ultRequests.has(u.uid) || this.t - u.ultReadySince > 6;
+          const asked = this.ultRequests.has(u.uid);
+          const wants = asked || ((!manual || this.t - u.ultReadySince > 4) && this.ultWorth(u, tg, d));
           if (wants && this.canUlt(u, tg, d)) { this.ultRequests.delete(u.uid); this.castUlt(u, tg); return; }
         }
         if (u.qCd <= 0 && d < Math.max(this.rangePx(u) + 60, 260)) { u.qCd = this.abilityCd(u, this.qBase(u)); this.castQ(u, tg); }
@@ -362,10 +766,10 @@
     }
 
     kite(u, dt) {
-      const melee = this.enemiesOf(u).find(o => !o.ranged && dist(u, o) < 110);
+      const melee = this.enemiesOf(u).find(o => !o.ranged && !o.isPet && dist(u, o) < 150 && o.target === u) || this.enemiesOf(u).find(o => !o.ranged && dist(u, o) < 105);
       if (!melee) return;
       const d = dist(u, melee) || 1;
-      const sp = this.ms(u) * 0.45 * dt;
+      const sp = this.ms(u) * 0.55 * dt;
       // geri ve hafif yana
       const nx = (u.x - melee.x) / d, ny = (u.y - melee.y) / d;
       u.x += (nx - ny * 0.4) * sp;
@@ -378,19 +782,37 @@
         const allies = this.alliesOf(u).filter(o => o !== u && this.targetable(o));
         if (allies.length) return allies.sort((a, b) => dist(u, a) - dist(u, b))[0];
       }
-      if (u.target && !u.target.dead && this.targetable(u.target) && this.sameRealm(u, u.target) && u.target.side !== u.side && u.retarget > 0) return u.target;
-      u.retarget = 1;
-      const foes = this.enemiesOf(u);
+      const leash = u.isPet ? 900 : 640;
+      const ok = o => !o.isMonster && !this.inFountain(o, o.side) && dist(u, o) < leash;
+      if (u.target && !u.target.dead && !u.target.isMonster && this.targetable(u.target) && this.sameRealm(u, u.target) && u.target.side !== u.side && u.retarget > 0 && ok(u.target)) return u.target;
+      u.retarget = 0.6;
+      const foes = this.enemiesOf(u).filter(ok);
       if (!foes.length) return null;
       if (u.realm && u.realmFoe && !u.realmFoe.dead) return u.realmFoe;
       const f = this.focus[u.side];
       if (f && this.t < f.until && f.u && !f.u.dead && foes.includes(f.u) && u.cls !== 'enchanter') return f.u;
+      const reach = this.rangePx(u) + u.r + 30;
+      // destekler: taşıyıcıya dalanı hedefle
+      if (u.cls === 'enchanter' || u.cls === 'engage' || u.role === 'support') {
+        const carry = this.alliesOf(u).filter(a => a !== u && CARRY[a.cls] && dist(a, u) < 500);
+        let diver = null, dd = 230;
+        for (const a of carry) for (const o of foes) { const x = dist(o, a); if (!o.isPet && x < dd) { dd = x; diver = o; } }
+        if (diver) return diver;
+      }
       let best = null, score = Infinity;
       for (const o of foes) {
-        let s = dist(u, o);
-        if (u.cls === 'assassin' || u.cls === 'apAssassin') s = s * 0.5 + o.hp * 0.25 - (o.ranged ? 350 : 0);
-        else if (u.ranged) s -= (1 - o.hp / o.maxHp) * 160;
-        if (o.isPet) s += 220;
+        const d = dist(u, o);
+        const hpPct = o.hp / o.maxHp;
+        // efektif can: zırh/direnç ve kalkanla
+        const def = this.isMagic(u) ? this.mr(o) : this.armor(o);
+        const ehp = (o.hp + this.shieldOf(o)) * (1 + Math.max(0, def) / 100);
+        let s = d + ehp * 0.04;
+        if (d <= reach) s -= 120;
+        if (CARRY[o.cls]) s -= 90;
+        if ((o.cls === 'tank' || o.cls === 'engage') && !(u.cls === 'tank')) s += 140;
+        if (hpPct < 0.3) s -= 200;
+        if (u.cls === 'assassin' || u.cls === 'apAssassin') s = d * 0.5 + o.hp * 0.2 - (o.ranged ? 350 : 0) - (hpPct < 0.4 ? 250 : 0);
+        if (o.isPet) s += 260;
         if (s < score) { score = s; best = o; }
       }
       return best;
@@ -464,16 +886,16 @@
           const c = near[0];
           const d = dist(u, c) || 1;
           this.blink(u, u.x + (u.x - c.x) / d * 200, u.y + (u.y - c.y) / d * 200);
-        } else if ((u.cls === 'assassin' || u.cls === 'engage' || u.cls === 'tank') && u.target && !u.target.dead) {
+        } else if ((u.cls === 'assassin' || u.cls === 'engage' || u.cls === 'tank') && u.mode === 'fight' && u.target && !u.target.dead && !u.target.isMonster) {
           const d = dist(u, u.target);
-          if (d > 160 && d < 300 && this.t > 3 && u.energy >= 100) {
+          if (d > 160 && d < 300 && this.ct(u) > 1 && u.energy >= 100 && this.odds(u, 600) > 0.9) {
             use('SummonerFlash', 120);
             this.blink(u, u.target.x - (u.target.x - u.x) / d * 60, u.target.y - (u.target.y - u.y) / d * 60);
           }
         }
       }
       if (ready('SummonerDot')) {
-        const low = foes.find(o => !o.isPet && dist(u, o) < 260 && o.hp / o.maxHp < 0.4);
+        const low = foes.find(o => !o.isPet && dist(u, o) < 260 && o.hp / o.maxHp < 0.4 && o.hp / o.maxHp > 0.05);
         if (low) {
           use('SummonerDot', 90);
           this.addBurn(u, low, (70 + 20 * LEVEL) / 5, 5, 'true');
@@ -489,13 +911,23 @@
           this.emit({ t: 'exhaust', u: diver });
         }
       }
-      if (ready('SummonerSmite') && u.target && dist(u, u.target) < 200 && !u.target.isPet) {
-        use('SummonerSmite', 15);
-        this.damage(u, u.target, 160, 'true', {});
-        this.slow(u.target, 0.2, 2);
-        this.emit({ t: 'smite', u: u.target });
+      if (ready('SummonerSmite')) {
+        const smite = (tg, dmg, cd) => {
+          use('SummonerSmite', cd);
+          u.summCd.SummonerSmite = this.t + cd; // çarp bekleme süresi rünlerden etkilenmez
+          this.emit({ t: 'smite', u: tg, from: u });
+          this.damage(u, tg, dmg, 'true', { big: true, smite: true });
+          if (tg.isMonster) this.heal(u, u, u.maxHp * 0.06, true);
+          else this.slow(tg, 0.3, 2);
+        };
+        // destansı canavarı çal / güvenceye al
+        const epic = this.monsters.find(m => m.epic && !m.dead && dist(u, m) < 260 + m.r && m.hp <= SMITE_DMG);
+        const epicSoon = this.monsters.some(m => m.epic && ((!m.dead && dist(u, m) < 900) || (m.dead && m.spawnAt - this.t < 15 && m.spawnAt > this.t)));
+        if (epic) smite(epic, SMITE_DMG, 30);
+        else if (!epicSoon && u.mode === 'camp' && u.camp && !u.camp.epic && !u.camp.dead && dist(u, u.camp) < 220 && u.camp.hp > SMITE_DMG * 0.6) smite(u.camp, SMITE_DMG, 30);
+        else if (!epicSoon && u.mode === 'fight' && u.target && !u.target.isPet && !u.target.isMonster && !u.target.dead && dist(u, u.target) < 200 && u.target.hp / u.target.maxHp < 0.2) smite(u.target, 220, 30);
       }
-      if (ready('SummonerHaste') && u.target && dist(u, u.target) > 280) {
+      if (ready('SummonerHaste') && u.mode === 'fight' && u.target && !u.target.isMonster && dist(u, u.target) > 280) {
         use('SummonerHaste', 120);
         u.msBuffUntil = this.t + 5; u.msBuffAmt = 0.4;
       }
@@ -544,6 +976,7 @@
         if (u.mod.trueHit) this.damage(u, tg, tg.maxHp * u.mod.trueHit, 'true', { quiet: true, onhit: true });
       }
       if (fx.kraken && u.attacks % 3 === 0) this.damage(u, tg, fx.kraken, 'true', {});
+      if (u.mod.red && !tg.isMonster && !tg.dead) { this.addBurn(u, tg, 25, 2, 'true'); this.slow(tg, 0.15, 1); }
       if (fx.statikk && u.attacks % 3 === 0) {
         const chain = [tg, ...this.enemiesOf(u).filter(o => o !== tg && dist(o, tg) < 250).slice(0, 3)];
         chain.forEach((o, i) => { this.damage(u, o, fx.statikk, 'magic', { quiet: i > 0 }); if (i) this.emit({ t: 'zap', from: chain[i - 1], to: o }); });
@@ -726,7 +1159,7 @@
 
     runeOnHit(u, tg, kind) {
       const r = u.rune, k = u.keystone;
-      if (tg.isPet) return;
+      if (tg.isPet || tg.isMonster) return;
       if (k === 8010) {
         r.stacks = Math.min(12, r.stacks + (kind === 'ability' ? 2 : 1));
         r.conqUntil = this.t + 5;
@@ -799,11 +1232,29 @@
 
     requestUlt(uid) { this.ultRequests.add(uid); }
 
+    // Ultiyi şimdi atmaya değer mi? (iki takım için aynı akıl)
+    ultWorth(u, tg, d) {
+      const [type, o] = u.ult;
+      if (tg.isMonster) return false;
+      const foes = this.enemiesOf(u).filter(e => !e.isPet);
+      const nearTg = foes.filter(e => dist(e, tg) < 320).length;
+      const nearMe = foes.filter(e => dist(e, u) < 480).length;
+      const tp = tg.hp / tg.maxHp, mp = u.hp / u.maxHp;
+      const waited = this.t - u.ultReadySince;
+      if (type === 'team') return nearMe > 0 && (this.alliesOf(u).some(a => dist(a, u) < 600 && a.hp / a.maxHp < 0.5) || nearMe >= 3 || mp < 0.45 || waited > 10);
+      if (type === 'transform' || type === 'steal') return nearMe > 0 && (nearMe >= 2 || tp < 0.7 || mp < 0.6);
+      if (type === 'summon') return nearMe > 0;
+      if (o.global) return (tp < 0.45 && tp > 0.04) || nearTg >= 3;
+      if (tp < 0.08 && nearTg <= 1) return false; // zaten ölüyor, ulti harcama
+      return nearTg >= 2 || tp < 0.7 || mp < 0.45 || waited > 7;
+    }
+
     castUlt(u, tg, stolen) {
       const [type, o] = stolen || u.ult;
       u.energy = 0;
       u.ultReadySince = -1;
-      u.ultTime = rnd(20, 26) * (u.st.fx.malignance ? 0.8 : 1) * 100 / (100 + u.st.ah * 0.5);
+      u.ultTime = rnd(22, 28) * (u.st.fx.malignance ? 0.8 : 1) * 100 / (100 + u.st.ah * 0.5 + (u.st.fx.ultHaste || 0) + (u.mod.ah || 0) * 0.5);
+      if (u.st.fx.hexplate) this.addBuff(u, { key: 'hexplate', dur: 6, as: 0.3, ms: 0.15 });
       if (!stolen) this.emit({ t: 'ult', u, type });
       this.ultCount = (this.ultCount || 0) + 1;
       const A = this.ultBase(u) * (o.dmg || 1.5);
@@ -1030,7 +1481,7 @@
         const pos = { x: center.x, y: center.y };
         if (o.stasis) {
           this.emit({ t: 'impact', x: pos.x, y: pos.y, r: o.radius, color: o.color, big: true });
-          for (const t of this.units) if (!t.dead && !t.isPet && t.realm === u.realm && Math.hypot(t.x - pos.x, t.y - pos.y) < o.radius + t.r) { t.stasis = o.stasis; this.emit({ t: 'stasis', u: t, color: '#fde68a' }); }
+          for (const t of this.units) if (!t.dead && !t.isPet && !t.isMonster && t.realm === u.realm && Math.hypot(t.x - pos.x, t.y - pos.y) < o.radius + t.r) { t.stasis = o.stasis; this.emit({ t: 'stasis', u: t, color: '#fde68a' }); }
           return;
         }
         if (o.channel) u.channel = { until: this.t + o.channel };
@@ -1246,7 +1697,7 @@
           break;
         }
         case 'revive': {
-          const dead = this.units.filter(a => a.side === u.side && a.dead && !a.isPet && a.realm === 0 && this.t - a.deathT < 8).sort((a, b) => b.deathT - a.deathT)[0];
+          const dead = this.units.filter(a => a.side === u.side && a.dead && !a.isPet && a.realm === 0 && this.t - a.deathT < 8 && a.reviveAt - this.t > 2.5).sort((a, b) => b.deathT - a.deathT)[0];
           if (dead) { this.emit({ t: 'clock', u: dead, color: o.color }); this.later(2, () => this.revive(dead, 0.5)); }
           else {
             const a = this.mostHurt(u, 600) || u;
@@ -1582,7 +2033,7 @@
     }
 
     ult_steal(u, tg, o) {
-      const victims = this.units.filter(x => x.side !== u.side && !x.isPet && x.ult[0] !== 'steal' && x.ult[0] !== 'realm');
+      const victims = this.units.filter(x => x.side !== u.side && !x.isPet && !x.isMonster && x.ult[0] !== 'steal' && x.ult[0] !== 'realm');
       const v = victims[Math.floor(Math.random() * victims.length)];
       if (!v) return;
       this.emit({ t: 'steal', u, from: v, color: o.color });
@@ -1617,7 +2068,7 @@
       u.x = d.x0 + (d.x1 - d.x0) * e;
       u.y = d.y0 + (d.y1 - d.y0) * e;
       if (d.onPath) {
-        for (const o of this.units) if (!o.dead && o !== u && o.realm === u.realm && !d.pathHit.has(o) && dist(o, u) < o.r + u.r + 10) { d.pathHit.add(o); d.onPath(o); }
+        for (const o of this.units) if (!o.dead && !o.isMonster && o !== u && o.realm === u.realm && !d.pathHit.has(o) && dist(o, u) < o.r + u.r + 10) { d.pathHit.add(o); d.onPath(o); }
       }
       if (p >= 1) {
         u.dash = null;
@@ -1651,7 +2102,7 @@
         if (p.line) {
           p.x += p.vx * sp; p.y += p.vy * sp; p.travelled += sp;
           for (const t of this.units) {
-            if (t.dead || t.side === p.side || t.realm !== p.realm || p.hit.has(t) || !this.targetable(t)) continue;
+            if (t.dead || t.isMonster || t.side === p.side || t.realm !== p.realm || p.hit.has(t) || !this.targetable(t)) continue;
             if (Math.hypot(t.x - p.x, t.y - p.y) < p.width / 2 + t.r) {
               p.hit.add(t);
               const o = p.o;
@@ -1699,7 +2150,7 @@
         if (z.follow) { if (z.follow.dead) { z.until = this.t; continue; } z.x = z.follow.x; z.y = z.follow.y; }
         if (z.onTick && this.t >= z.nextTick && z.n < (z.ticks || 1)) {
           z.n++; z.nextTick += z.interval;
-          const tgts = this.units.filter(t => !t.dead && t.side !== z.side && t.realm === z.realm && this.targetable(t) && Math.hypot(t.x - z.x, t.y - z.y) < z.r + t.r);
+          const tgts = this.units.filter(t => !t.dead && !t.isMonster && t.side !== z.side && t.realm === z.realm && this.targetable(t) && Math.hypot(t.x - z.x, t.y - z.y) < z.r + t.r);
           z.onTick(z, tgts);
         }
       }
@@ -1716,6 +2167,8 @@
     // ---------- kitle kontrolü ----------
     cc(src, t, kind, dur, extra) {
       if (!t || t.dead || t.stasis > 0 || t.banish > 0 || !dur) return;
+      if (t.isMonster) return;
+      if (kind !== 'slow' && src.st && src.st.fx.mandate && src.side !== t.side) t.vulnUntil = this.t + 4;
       if (t.mod.invuln && kind !== 'slow') return;
       if (t.mod.unstoppable || (t.dash && t.dash.unstoppable)) return;
       if (kind === 'slow') { t.slowAmt = Math.max(dur && extra ? dur : 0, this.t < t.slowUntil ? t.slowAmt : 0); t.slowUntil = this.t + (extra || 1); return; }
@@ -1724,6 +2177,7 @@
       if (kind !== 'knockup' && kind !== 'suppress') d *= 1 - (t.st.fx.tenacity || 0);
       // Arındır / Mikael
       if (hard && d >= 0.9 && !t.isPet) {
+        if (t.st.fx.qss && !(t.qssCd > this.t) && kind !== 'knockup') { t.qssCd = this.t + 90; this.emit({ t: 'itemProc', u: t, id: 3139 }); this.emit({ t: 'cleanse', u: t }); return; }
         if (t.summs.includes('SummonerBoost') && !(t.summCd.SummonerBoost > this.t)) { t.summCd.SummonerBoost = this.t + 90; this.emit({ t: 'summ', u: t, id: 'SummonerBoost' }); this.emit({ t: 'cleanse', u: t }); return; }
         const mik = this.units.find(a => a.side === t.side && !a.dead && a.st.fx.mikael && !(a.mikCd > this.t) && dist(a, t) < 500);
         if (mik && kind !== 'knockup') { mik.mikCd = this.t + 45; this.heal(mik, t, 150 + t.maxHp * 0.1); this.emit({ t: 'cleanse', u: t }); return; }
@@ -1804,6 +2258,14 @@
         this.emit({ t: 'block', u: t });
         return 0;
       }
+      // savaş zamanlayıcıları (Yun Tal, Jak'Sho, Yarık vb. her çatışmada yeniden)
+      if (!t.isMonster && !src.isMonster && src.side !== t.side) {
+        for (const x of [src.isPet ? src.owner : src, t]) {
+          if (!x || x.isPet || x.isMonster) continue;
+          if (this.t - Math.max(x.lastHurt, x.lastHit || -10) > 5) { x.combatStart = this.t; x.hitsOn = {}; if (x.keystone === 9923) x.rune.hail = 3; }
+        }
+        (src.isPet ? src.owner : src).lastHit = this.t;
+      }
       let amt = raw;
       if (type === 'physical') {
         let arm = this.armor(t) * (1 - t.shred) * (1 - (src.st.fx.arpen || 0)) - (src.st.fx.leth || 0);
@@ -1818,12 +2280,14 @@
       let mult = 1 + src.mod.amp;
       if (src.keystone === 8010 && src.rune.stacks >= 12 && this.t < src.rune.conqUntil) mult += 0.12;
       if (src.rune.firstUntil && this.t < src.rune.firstUntil) mult += 0.12;
-      if (src.st.fx.riftmaker) mult += Math.min(src.st.fx.riftmaker, this.t * 0.01);
+      if (src.st.fx.riftmaker) mult += Math.min(src.st.fx.riftmaker, this.ct(src) * 0.01);
       if (src.st.fx.execute && t.hp / t.maxHp < 0.4) mult += src.st.fx.execute;
       if (src.st.fx.profane && t.hp / t.maxHp < 0.5) mult += 0.1;
       if (src.st.fx.horizon && (dist(src, t) > 300 || t.stun > 0 || t.root > 0)) mult += src.st.fx.horizon;
       if (src.st.fx.shojin && o.ability) mult += src.st.fx.shojin;
       if (this.t < t.vulnUntil) mult += 0.08;
+      if (type === 'magic' && !t.isMonster && this.units.some(o => o.side === src.side && !o.dead && o.st.fx.abyssal && dist(o, t) < 260)) mult += 0.12;
+      if (o.ability && src.st.fx.siege) mult += 0.06;
       if (this.t < src.exhaustedUntil) mult *= 0.65;
       if (src.blindUntil && this.t < src.blindUntil && o.basic) mult *= 0.5;
       amt *= mult;
@@ -1836,7 +2300,7 @@
 
       // kalkanlar
       let left = amt;
-      const antiShield = 1;
+      const antiShield = 1 + (src.st.fx.reave || 0) * 2;
       for (const s of t.shields) {
         if (left <= 0) break;
         const take = Math.min(s.a, left * antiShield);
@@ -1860,15 +2324,16 @@
         if (src.st.fx.bloodShield && src.hp >= src.maxHp - 1) this.addShield(src, src, Math.min(300, amt * ls - healed), 3);
       }
       if (src.keystone === 8010 && src.rune.stacks >= 12 && this.t < src.rune.conqUntil) this.heal(src, src, amt * (src.ranged ? 0.05 : 0.08), true);
-      if (src.st.fx.riftmaker && this.t > 4) this.heal(src, src, amt * 0.06, true);
+      if (src.st.fx.omnivamp && !o.reflect) this.heal(src, src, amt * src.st.fx.omnivamp * (o.aoe || o.dot ? 0.35 : 1), true);
+      if (src.st.fx.riftmaker && this.ct(src) > 4) this.heal(src, src, amt * 0.06, true);
       if (src.st.fx.taste && !(src.tasteCd > this.t) && !t.isPet) { src.tasteCd = this.t + 15; this.heal(src, src, 30 + 0.1 * this.bonusAd(src) + 0.05 * this.ap(src), true); }
       if (o.basic && type === 'physical' && t.st.fx.thorns && !o.reflect) {
         this.damage(t, src, 30 + amt * t.st.fx.thorns, 'magic', { quiet: true, reflect: true });
         if (t.st.fx.grievous) src.grievousUntil = this.t + 3;
       }
-      if (!t.isPet && src.side !== t.side) {
+      if (!t.isPet && !t.isMonster && src.side !== t.side) {
         t.energy += amt / t.maxHp * 25;
-        credit.energy += amt / t.maxHp * 12;
+        if (!src.isMonster) credit.energy += amt / t.maxHp * 12;
       }
 
       // tetikler
@@ -1912,6 +2377,7 @@
           }
         }
       } else {
+        if (t.isMonster) { this.killMonster(src, t); return amt; }
         if (t.isPet) { this.killPet(src, t); return amt; }
         this.kill(src, t);
       }
@@ -1932,9 +2398,23 @@
       t.burns = [];
       t.dash = null; t.air = null; t.channel = null;
       t.deaths++;
-      const killer = src.isPet ? src.owner : src;
+      t.mode = null; t.camp = null; t.recallAt = 0;
+      let killer = src.isPet ? src.owner : src;
+      if (killer.isMonster || killer.side === t.side) {
+        // canavar ya da kule bitirdiyse son vuran rakip şampiyon skoru alır
+        let best = null, bt = this.t - 10;
+        for (const uid in t.lastHurtBy) {
+          const a = this.units.find(x => x.uid === +uid);
+          if (a && !a.isPet && !a.isMonster && a.side !== t.side && t.lastHurtBy[uid] > bt) { bt = t.lastHurtBy[uid]; best = a; }
+        }
+        if (best) killer = best;
+      }
       if (t.st.fx.ga && !t.used.ga) { t.used.ga = 1; t.reviveAt = this.t + 4; t.reviveHp = 0.5; this.emit({ t: 'itemProc', u: t, id: 3026 }); }
-      if (killer.side !== t.side) {
+      else { t.reviveAt = this.t + 10 + this.t * 0.04; t.respawnHome = true; }
+      if (!killer.isMonster && killer.side !== t.side) {
+        this.gold[killer.side] += 300;
+        // buffları katile geçer
+        for (const b of t.buffs) if ((b.key === 'red' || b.key === 'blue') && b.until > this.t) this.addBuff(killer, { ...b, dur: b.until - this.t });
         killer.kills++;
         this.kills[killer.side]++;
         for (const uid in t.lastHurtBy) {
@@ -1955,11 +2435,14 @@
       for (const x of this.units) if (x.inside === t) { x.insideUntil = this.t; }
       for (const x of this.units) if (x.isPet && x.owner === t && !x.dead && !x.explode) { x.expires = this.t + 2; }
       this.projs = this.projs.filter(p => p.tg !== t);
+      t.buffs = t.buffs.filter(b => b.keep);
+      this.recalc(t);
+      if (killer.isMonster || killer.side === t.side) { this.emit({ t: 'death', victim: t }); return; }
       this.emit({ t: 'kill', killer, victim: t, first: this.kills[0] + this.kills[1] === 1 });
     }
 
     revive(u, hpPct) {
-      u.dead = false; u.reviveAt = 0;
+      u.dead = false; u.reviveAt = 0; u.respawnHome = false;
       u.hp = u.maxHp * hpPct;
       u.stun = u.root = 0; u.fear = u.charm = null;
       this.emit({ t: 'revive', u });
@@ -1982,23 +2465,25 @@
 
     alive(side) { return this.units.some(u => u.side === side && !u.isPet && (!u.dead || u.reviveAt)); }
 
+    // 5 dakika sonunda: önce skor, eşitse ejder+baron, sonra altın
+    score(side) { return this.kills[side] * 1000 + (this.drakes[side] + this.barons[side] * 2) * 10 + this.gold[side] / 10000; }
     checkEnd() {
-      const a = this.alive(0), b = this.alive(1);
-      if (a && b && this.t < 120) return;
+      if (this.t < GAME_LEN) return;
       this.done = true;
-      if (a !== b) this.winner = a ? 0 : 1;
+      const a = this.score(0), b = this.score(1);
+      if (a !== b) this.winner = a > b ? 0 : 1;
       else {
-        const hp = s => this.champs(s).reduce((t, u) => t + (u.dead ? 0 : u.hp / u.maxHp), 0);
+        const hp = s => this.champs(s).reduce((t, u) => t + (u.dead ? 0 : u.hp / u.maxHp) + u.dmg / 1e6, 0);
         this.winner = hp(0) >= hp(1) ? 0 : 1;
       }
     }
 
-    runHeadless(maxT = 140) {
-      while (!this.done && this.t < maxT) { this.step(1 / 30); this.events.length = 0; }
+    runHeadless(maxT = GAME_LEN + 5) {
+      while (!this.done && this.t < maxT) { this.step(1 / 20); this.events.length = 0; }
       if (!this.done) { this.t = 999; this.checkEnd(); }
       return this.winner;
     }
   }
 
-  root.Mayhem = { W, H, LEVEL, REALM, HP_MULT, ITEMS, setItemData, computeStats, Sim, dist };
+  root.Mayhem = { W, H, LEVEL, REALM, HP_MULT, ITEMS, setItemData, computeStats, Sim, dist, GAME_LEN, FOUNTAIN, FOUNTAIN_R, CAMP_DEFS, EPIC_DEFS };
 })(typeof window !== 'undefined' ? window : globalThis);

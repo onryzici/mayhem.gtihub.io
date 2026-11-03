@@ -55,19 +55,19 @@
 
   // Sınıflara göre gerçek buildler: [ayakkabı, önerilen 4 item, alternatifler]
   const BUILDS = {
-    marksman: { boots: 3006, core: [3032, 3031, 6675, 3036], alt: [3072, 3094, 3085, 6676, 3046, 3033, 3026, 6673], keystone: 8008, secondary: 8400, summ: ['SummonerFlash', 'SummonerHeal'] },
-    onhit: { boots: 3006, core: [3153, 3124, 3091, 3302], alt: [6672, 3085, 3046, 3072, 3026, 3115], keystone: 8008, secondary: 8400, summ: ['SummonerFlash', 'SummonerHeal'] },
-    caster: { boots: 3158, core: [3004, 3078, 6694, 3508], alt: [3071, 6676, 3094, 3031, 3036, 6333, 3026], keystone: 8005, secondary: 8300, summ: ['SummonerFlash', 'SummonerHeal'] },
-    assassin: { boots: 3158, core: [3142, 6698, 3814, 6694], alt: [6697, 6699, 6696, 6676, 6692, 3071, 6333, 3026], keystone: 8112, secondary: 8000, summ: ['SummonerFlash', 'SummonerDot'] },
-    apAssassin: { boots: 3020, core: [4646, 4645, 3089, 3135], alt: [3157, 3100, 3152, 4629, 3102, 6655], keystone: 8112, secondary: 8200, summ: ['SummonerFlash', 'SummonerDot'] },
-    mage: { boots: 3020, core: [6655, 4645, 3089, 3135], alt: [3157, 4628, 3165, 3102, 4646, 3003, 3118], keystone: 8229, secondary: 8300, summ: ['SummonerFlash', 'SummonerBarrier'] },
-    battlemage: { boots: 3020, core: [6653, 3116, 4633, 3157], alt: [3089, 3135, 4629, 3165, 3003, 3118, 3102], keystone: 8010, secondary: 8400, summ: ['SummonerFlash', 'SummonerHaste'] },
-    apBruiser: { boots: 3111, core: [4633, 6653, 3157, 6665], alt: [3116, 3115, 3089, 4629, 3065, 3068], keystone: 8010, secondary: 8400, summ: ['SummonerFlash', 'SummonerDot'] },
-    fighter: { boots: 3047, core: [3071, 3053, 6333, 6610], alt: [3078, 6692, 3161, 3748, 3074, 3156, 3026, 3065, 6631], keystone: 8010, secondary: 8400, summ: ['SummonerFlash', 'SummonerDot'] },
-    tank: { boots: 3047, core: [3068, 3075, 6665, 4401], alt: [3084, 3083, 3143, 3110, 2504, 2502, 6662, 3065, 3742, 6664], keystone: 8437, secondary: 8300, summ: ['SummonerFlash', 'SummonerHaste'] },
-    engage: { boots: 3047, core: [3190, 3109, 6665, 3075], alt: [3143, 4401, 2504, 3084, 3050, 3110, 6664], keystone: 8439, secondary: 8300, summ: ['SummonerFlash', 'SummonerExhaust'] },
-    enchanter: { boots: 3158, core: [6617, 3107, 3504, 3222], alt: [2065, 6620, 6616, 6621, 3190, 3157], keystone: 8214, secondary: 8400, summ: ['SummonerFlash', 'SummonerExhaust'] },
-    mageSup: { boots: 3020, core: [6653, 3116, 3118, 3157], alt: [3089, 3135, 3165, 4645, 6655], keystone: 8229, secondary: 8300, summ: ['SummonerFlash', 'SummonerDot'] }
+    marksman: { boots: 3006, core: [3032, 3031, 6675, 3036], alt: [3072, 3094, 3085, 6676, 3046, 3033, 3026, 6673, 3095, 2512, 2523, 3139], keystone: 8008, secondary: 8400, summ: ['SummonerFlash', 'SummonerHeal'] },
+    onhit: { boots: 3006, core: [3153, 3124, 3091, 3302], alt: [6672, 3085, 3046, 3072, 3026, 3115, 2510, 3139], keystone: 8008, secondary: 8400, summ: ['SummonerFlash', 'SummonerHeal'] },
+    caster: { boots: 3158, core: [3004, 3078, 6694, 3508], alt: [3071, 6676, 3094, 3031, 3036, 6333, 3026, 2520, 6609], keystone: 8005, secondary: 8300, summ: ['SummonerFlash', 'SummonerHeal'] },
+    assassin: { boots: 3158, core: [3142, 6698, 3814, 6694], alt: [6697, 6699, 6696, 6676, 6692, 3071, 6333, 3026, 2520, 3179, 6695], keystone: 8112, secondary: 8000, summ: ['SummonerFlash', 'SummonerDot'] },
+    apAssassin: { boots: 3020, core: [4646, 4645, 3089, 3135], alt: [3157, 3100, 3152, 4629, 3102, 6655, 3137, 3146], keystone: 8112, secondary: 8200, summ: ['SummonerFlash', 'SummonerDot'] },
+    mage: { boots: 3020, core: [6655, 4645, 3089, 3135], alt: [3157, 4628, 3165, 3102, 4646, 3003, 3118, 2503, 3137, 8010], keystone: 8229, secondary: 8300, summ: ['SummonerFlash', 'SummonerBarrier'] },
+    battlemage: { boots: 3020, core: [6653, 3116, 4633, 3157], alt: [3089, 3135, 4629, 3165, 3003, 3118, 3102, 2503, 6657, 8010], keystone: 8010, secondary: 8400, summ: ['SummonerFlash', 'SummonerHaste'] },
+    apBruiser: { boots: 3111, core: [4633, 6653, 3157, 6665], alt: [3116, 3115, 3089, 4629, 3065, 3068, 3146, 2510], keystone: 8010, secondary: 8400, summ: ['SummonerFlash', 'SummonerDot'] },
+    fighter: { boots: 3047, core: [3071, 3053, 6333, 6610], alt: [3078, 6692, 3161, 3748, 3074, 3156, 3026, 3065, 6631, 2501, 3073, 6609, 2517, 3181], keystone: 8010, secondary: 8400, summ: ['SummonerFlash', 'SummonerDot'] },
+    tank: { boots: 3047, core: [3068, 3075, 6665, 4401], alt: [3084, 3083, 3143, 3110, 2504, 2502, 6662, 3065, 3742, 6664, 8020, 3119, 2525], keystone: 8437, secondary: 8300, summ: ['SummonerFlash', 'SummonerHaste'] },
+    engage: { boots: 3047, core: [3190, 3109, 6665, 3075], alt: [3143, 4401, 2504, 3084, 3050, 3110, 6664, 8020, 4005, 2525], keystone: 8439, secondary: 8300, summ: ['SummonerFlash', 'SummonerExhaust'] },
+    enchanter: { boots: 3158, core: [6617, 3107, 3504, 3222], alt: [2065, 6620, 6616, 6621, 3190, 3157, 4005, 2524], keystone: 8214, secondary: 8400, summ: ['SummonerFlash', 'SummonerExhaust'] },
+    mageSup: { boots: 3020, core: [6653, 3116, 3118, 3157], alt: [3089, 3135, 3165, 4645, 6655, 2503, 4005], keystone: 8229, secondary: 8300, summ: ['SummonerFlash', 'SummonerDot'] }
   };
 
   // Şampiyona özel build düzeltmeleri
@@ -211,7 +211,33 @@
     2065: { cat: 'support', ah: 15, fx: { shurelya: 1 }, desc: 'Savaş başında takıma hız verir.' },
     6620: { cat: 'support', ah: 15, fx: { helia: 1 }, desc: 'İyileştirince yakındaki rakibe hasar verir.' },
     6616: { cat: 'support', ah: 15, fx: { flowing: 1 }, desc: 'İyileştirdiklerine yetenek gücü verir.' },
-    6621: { cat: 'support', fx: { moonstone: 0.2 }, desc: 'İyileştirme ve kalkanlar %20 güçlenir.' }
+    6621: { cat: 'support', fx: { moonstone: 0.2 }, desc: 'İyileştirme ve kalkanlar %20 güçlenir.' },
+    // Güncel yama itemleri
+    3008: { cat: 'boots', fx: { omnivamp: 0.04 }, desc: '%4 mutlak sömürü, çok hızlı.' },
+    3095: { cat: 'crit', fx: { voltaic: 1 }, desc: 'Yüklü saldırı ek hasar verir ve yavaşlatır.' },
+    2512: { cat: 'crit', fx: { critDmg: 0.1, ultHaste: 30 }, desc: 'Ulti daha sık dolar, kritik hasarı artar.' },
+    2523: { cat: 'crit', fx: { horizon: 0.1 }, desc: 'Uzaktaki hedeflere %10 ek hasar.' },
+    2510: { cat: 'onhit', ah: 20, fx: { lichbane: 1 }, desc: 'Yetenek sonrası saldırı ek büyü hasarı verir.' },
+    3073: { cat: 'fighter', fx: { ultHaste: 30, hexplate: 1 }, desc: 'Ulti daha sık dolar; ulti sonrası hız patlaması.' },
+    2501: { cat: 'fighter', fx: { bloodmail: 0.025 }, desc: 'Ek canının %2.5\'i kadar saldırı gücü.' },
+    2517: { cat: 'fighter', fx: { omnivamp: 0.07 }, desc: 'Verdiğin tüm hasardan %7 can emersin.' },
+    6609: { cat: 'fighter', ah: 15, fx: { grievous: 1 }, desc: 'Fiziksel hasar iyileşmeyi %40 azaltır.' },
+    3181: { cat: 'fighter', fx: { kraken: 110 }, desc: 'Her 3. saldırı ek fiziksel hasar verir.' },
+    3139: { cat: 'fighter', fx: { qss: 1 }, desc: 'Sersemletilince kendini arındırır (90 sn).' },
+    2520: { cat: 'assassin', ah: 15, fx: { leth: 18, siege: 1 }, desc: '18 ölümcüllük; yetenekler ek gerçek hasar.' },
+    3179: { cat: 'assassin', ah: 15, fx: { leth: 18 }, desc: '18 ölümcüllük, görünmezlikten sonra ek hasar.' },
+    6695: { cat: 'assassin', fx: { leth: 15, reave: 0.5 }, desc: 'Hedefin kalkanlarını yarı yarıya azaltır.' },
+    2503: { cat: 'mage', ah: 20, fx: { burn: 0.012 }, desc: 'Yetenekler 3 sn yakar.' },
+    2522: { cat: 'mage', ah: 10, fx: { shojin: 0.1 }, desc: 'Yetenek hasarı %10 artar.' },
+    3137: { cat: 'mage', ah: 20, fx: { mpen: 0.3 }, desc: '%30 büyü delme, skorda dostları iyileştirir.' },
+    3146: { cat: 'mage', fx: { omnivamp: 0.1 }, desc: 'Verdiğin tüm hasardan %10 can emersin.' },
+    6657: { cat: 'mage', fx: {}, desc: 'Can, mana ve yetenek gücü.' },
+    8010: { cat: 'mage', ah: 15, fx: { mpen: 0.2 }, desc: 'Büyü hasarı hedefin direncini eritir.' },
+    4005: { cat: 'support', ah: 15, fx: { mandate: 1 }, desc: 'Hareketsiz bıraktığın rakip 4 sn %8 fazla hasar alır.' },
+    2524: { cat: 'support', ah: 15, fx: { ardent: 0.2 }, desc: 'Kitle kontrolünden sonra takımla saldırı hızı.' },
+    2525: { cat: 'tank', ah: 20, fx: { sterak: 0.5 }, desc: 'Canın %30\'un altında büyük kalkan.' },
+    3119: { cat: 'tank', ah: 15, fx: { seraph: 1 }, desc: 'Can düşünce büyük kalkan.' },
+    8020: { cat: 'tank', ah: 15, fx: { abyssal: 0.12 }, desc: 'Yakındaki rakipler %12 fazla büyü hasarı alır.' }
   };
   const ITEM_CATS = {
     boots: 'Ayakkabı', crit: 'Kritik', onhit: 'İsabet', caster: 'Yetenekçi', fighter: 'Savaşçı',
@@ -253,7 +279,7 @@
     SummonerBarrier: 'Can düşünce büyük bir kalkan.',
     SummonerExhaust: 'Dalan rakibin hasarını %35 azaltır.',
     SummonerBoost: 'Kitle kontrolünden kurtarır.',
-    SummonerSmite: 'Rakibe gerçek hasar verir ve yavaşlatır.',
+    SummonerSmite: 'Ormancı büyüsü: canavarlara 900 gerçek hasar, kampları hızlı temizler, ejder ve baronu çalar.',
     SummonerHaste: 'Savaşta büyük hareket hızı.'
   };
 

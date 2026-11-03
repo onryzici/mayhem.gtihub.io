@@ -134,6 +134,40 @@
     }
     rock(700, 70, 40); rock(720, 735, 40);
 
+    // üst ve alt koridor
+    const lane = (y0, y1) => {
+      g.beginPath();
+      g.moveTo(90, H / 2 + (y1 > H / 2 ? 60 : -60));
+      g.quadraticCurveTo(150, y1, 300, y1);
+      g.lineTo(W - 300, y1);
+      g.quadraticCurveTo(W - 150, y1, W - 90, H / 2 + (y1 > H / 2 ? 60 : -60));
+    };
+    for (const y of [125, 690]) {
+      lane(0, y); g.strokeStyle = 'rgba(60,45,25,0.45)'; g.lineWidth = 78; g.stroke();
+      lane(0, y); g.strokeStyle = 'rgba(120,95,60,0.35)'; g.lineWidth = 56; g.stroke();
+      lane(0, y); g.strokeStyle = 'rgba(150,120,80,0.16)'; g.lineWidth = 26; g.stroke();
+    }
+    // kamp çukurları
+    const pit = (x, y, r, epic, col) => {
+      g.fillStyle = 'rgba(0,0,0,0.28)';
+      g.beginPath(); g.ellipse(x + 4, y + 6, r * 1.9, r * 1.35, 0, 0, TAU); g.fill();
+      const pg = g.createRadialGradient(x, y, r * 0.2, x, y, r * 1.8);
+      pg.addColorStop(0, epic ? 'rgba(70,58,44,0.95)' : 'rgba(92,74,50,0.85)');
+      pg.addColorStop(1, 'rgba(60,48,32,0)');
+      g.fillStyle = pg;
+      g.beginPath(); g.ellipse(x, y, r * 1.9, r * 1.4, 0, 0, TAU); g.fill();
+      const n = epic ? 14 : 8;
+      for (let i = 0; i < n; i++) {
+        const a = i / n * TAU + R() * 0.3, rr = r * (epic ? 1.75 : 1.6);
+        g.fillStyle = `rgba(${110 + R() * 40},${105 + R() * 30},${95 + R() * 25},0.85)`;
+        g.beginPath(); g.ellipse(x + Math.cos(a) * rr, y + Math.sin(a) * rr * 0.72, 5 + R() * 5, 4 + R() * 3, R() * 3, 0, TAU); g.fill();
+      }
+      g.strokeStyle = hexA(col, epic ? 0.5 : 0.3); g.lineWidth = 2;
+      g.setLineDash([6, 7]); g.beginPath(); g.ellipse(x, y, r * 1.45, r * 1.05, 0, 0, TAU); g.stroke(); g.setLineDash([]);
+    };
+    for (const d of M.CAMP_DEFS) for (const side of [0, 1]) pit(side ? W - d.x : d.x, d.y, d.r, false, d.color);
+    for (const d of M.EPIC_DEFS) pit(d.x, d.y, d.r, true, d.color);
+
     // üsler
     [[0, colors[0]], [1, colors[1]]].forEach(([side, col]) => {
       const cx = side ? W - 40 : 40, cy = H / 2;
@@ -223,7 +257,7 @@
       const p = this.toWorld(e.clientX - r.left, e.clientY - r.top);
       let best = null, bd = 60;
       for (const u of this.sim.units) {
-        if (u.dead || u.side === 0 || u.realm) continue;
+        if (u.dead || u.side !== 1 || u.realm || u.isPet) continue;
         const d = Math.hypot(u.x - p.x, u.y - p.y);
         if (d < bd) { bd = d; best = u; }
       }
@@ -343,7 +377,26 @@
           case 'itemProc': this.float(e.u, '', '#fff', 14, { icon: this.assets.itemIcon(e.id), life: 1.1, vy: -25 }); break;
           case 'ignite': this.burst(e.u.x, e.u.y, '#fb923c', 14, 90, 3, e.u.realm, { up: 60 }); break;
           case 'exhaust': this.addFx({ kind: 'ring', x: e.u.x, y: e.u.y, r: 40, color: '#94a3b8', life: 0.6 }); break;
-          case 'smite': this.addFx({ kind: 'column', x: e.u.x, y: e.u.y, r: 26, color: '#fbbf24', life: 0.35 }); break;
+          case 'smite':
+            this.addFx({ kind: 'column', x: e.u.x, y: e.u.y, r: 30, color: '#fbbf24', life: 0.45 });
+            if (e.from) this.addFx({ kind: 'zap', from: { x: e.from.x, y: e.from.y }, to: e.u, color: '#fde047', life: 0.3 });
+            this.burst(e.u.x, e.u.y, '#fde047', 18, 180, 3.5);
+            this.shake = Math.max(this.shake, e.u.epic ? 7 : 2);
+            break;
+          case 'monsterKill': {
+            const m = e.m;
+            this.burst(m.x, m.y, m.color, m.epic ? 50 : 18, m.epic ? 320 : 160, m.epic ? 4.5 : 3);
+            const txt = m.key === 'blue' ? 'MAVİ BUFF' : m.key === 'red' ? 'KIRMIZI BUFF' : m.epic ? m.name.toLocaleUpperCase('tr') : '+' + m.def.gold;
+            this.float(e.u, txt, m.def.buff || m.epic ? m.color : '#fbbf24', m.epic ? 20 : 13, { life: 1.4 });
+            if (m.epic) { this.shake = Math.max(this.shake, 10); this.addFx({ kind: 'ring', x: m.x, y: m.y, r: 160, color: m.color, life: 0.8, big: true }); }
+            break;
+          }
+          case 'objective': this.hooks.onObjective && this.hooks.onObjective(e); break;
+          case 'respawn': this.addFx({ kind: 'column', x: e.u.x, y: e.u.y, r: 32, color: this.colors[e.u.side], life: 0.6 }); break;
+          case 'death':
+            this.burst(e.victim.x, e.victim.y, this.colors[e.victim.side], 24, 200, 4, e.victim.realm);
+            this.addFx({ kind: 'soul', x: e.victim.x, y: e.victim.y, color: this.colors[e.victim.side], life: 1.4, realm: e.victim.realm });
+            break;
           case 'cleanse': this.float(e.u, 'ARINDI', '#7dd3fc', 13); this.burst(e.u.x, e.u.y, '#7dd3fc', 14, 120, 3); break;
           case 'zap': this.addFx({ kind: 'zap', from: { x: e.from.x, y: e.from.y }, to: e.to, color: e.color || '#a5f3fc', life: 0.22 }); break;
           case 'link': this.addFx({ kind: 'link', from: e.from, to: e.to, color: e.color, life: 0.5 }); break;
@@ -386,12 +439,14 @@
       const sim = this.sim;
       const fdt = Math.max(dt, realDt * 0.3);
       // kamera
-      const live = sim.units.filter(u => !u.dead && !u.realm && u.banish <= 0);
+      const champsLive = sim.units.filter(u => !u.dead && !u.realm && u.banish <= 0 && !u.isMonster && !u.isPet);
+      const busy = champsLive.filter(u => sim.t - u.lastHurt < 2.5);
+      const live = busy.length >= 2 ? busy : champsLive;
       if (live.length) {
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
         for (const u of live) { x0 = Math.min(x0, u.x); y0 = Math.min(y0, u.y); x1 = Math.max(x1, u.x); y1 = Math.max(y1, u.y); }
         const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
-        const z = clamp(Math.min(VW / (x1 - x0 + 420), VH / (y1 - y0 + 330)), 1, 1.55);
+        const z = clamp(Math.min(VW / (x1 - x0 + 460), VH / (y1 - y0 + 360)), 1, 1.45);
         const k = 1 - Math.pow(0.02, realDt);
         this.cam.z = lerp(this.cam.z, z, k * 0.8);
         const hw = VW / 2 / this.cam.z, hh = VH / 2 / this.cam.z;
@@ -546,7 +601,7 @@
       }
       // birimler (önce ölüler)
       const units = sim.units.filter(u => (u.realm || 0) === realm && u.banish <= 0 && !(u.inside)).sort((a, b) => (b.dead - a.dead) || a.y - b.y);
-      for (const u of units) this.drawUnit(c, u);
+      for (const u of units) { if (u.isMonster) this.drawMonster(c, u); else this.drawUnit(c, u); }
       // mermiler
       for (const p of sim.projs) if ((p.realm || 0) === realm) this.drawProj(c, p);
       // efektler
@@ -743,8 +798,26 @@
         c.strokeStyle = `rgba(239,68,68,${0.6 + 0.4 * Math.sin(this.real * 18)})`; c.lineWidth = 4;
         c.beginPath(); c.arc(x, y, r + 6, 0, TAU); c.stroke();
       }
+      // üsse dönüş
+      if (u.recallAt && u.recallAt > sim.t) {
+        const p = 1 - (u.recallAt - sim.t) / 3.5;
+        c.strokeStyle = 'rgba(96,165,250,0.95)'; c.lineWidth = 3;
+        c.beginPath(); c.arc(x, y, r + 10, -Math.PI / 2, -Math.PI / 2 + TAU * p); c.stroke();
+        c.fillStyle = 'rgba(96,165,250,0.18)';
+        c.beginPath(); c.ellipse(u.x, u.y + r * 0.7, r + 10, 9, 0, 0, TAU); c.fill();
+      }
       // can barı
       const bw = Math.max(56, r * 2.4), bh = 8, bx = x - bw / 2, by = y - r - 20;
+      // buff simgeleri
+      if (!u.isPet && u.buffs) {
+        let px = bx;
+        for (const [key, bc] of [['red', '#ef4444'], ['blue', '#3b82f6'], ['baron', '#a855f7']]) {
+          if (!u.buffs.some(b => b.key === key)) continue;
+          c.fillStyle = bc; c.strokeStyle = '#000'; c.lineWidth = 1.5;
+          c.beginPath(); c.arc(px + 4, by - 7, 4, 0, TAU); c.fill(); c.stroke();
+          px += 11;
+        }
+      }
       c.fillStyle = 'rgba(5,8,12,0.85)';
       c.fillRect(bx - 2, by - 2, bw + 4, bh + 4);
       const total = Math.max(u.maxHp, u.hp + sh);
@@ -768,6 +841,89 @@
           c.fillStyle = '#f3d58a'; c.strokeStyle = '#000'; c.lineWidth = 1.5;
           c.fillRect(-4, -4, 8, 8); c.strokeRect(-4, -4, 8, 8);
           c.restore();
+        }
+      }
+      c.restore();
+    }
+
+    drawMonster(c, m) {
+      const sim = this.sim;
+      if (m.dead) {
+        if (m.epic && m.spawnAt > sim.t) {
+          const left = Math.ceil(m.spawnAt - sim.t);
+          c.fillStyle = 'rgba(0,0,0,0.55)';
+          c.beginPath(); c.arc(m.home.x, m.home.y, 22, 0, TAU); c.fill();
+          c.strokeStyle = hexA(m.color, 0.8); c.lineWidth = 2; c.stroke();
+          c.fillStyle = '#f8fafc'; c.font = '700 12px "Chakra Petch", sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+          c.fillText(`${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`, m.home.x, m.home.y);
+        }
+        return;
+      }
+      const col = m.color, r = m.r, t = this.real;
+      let x = m.x, y = m.y + Math.sin(t * 2 + m.uid) * 1.5;
+      if (m.lunge > 0) { const p = Math.sin((1 - m.lunge / 0.14) * Math.PI) * 8; x += Math.cos(m.facing) * p; y += Math.sin(m.facing) * p; }
+      c.save();
+      c.fillStyle = 'rgba(0,0,0,0.42)';
+      c.beginPath(); c.ellipse(m.x, m.y + r * 0.8, r * 1.05, r * 0.32, 0, 0, TAU); c.fill();
+      const body = (bx, by, br, cc) => {
+        const g = c.createRadialGradient(bx - br * 0.35, by - br * 0.4, br * 0.1, bx, by, br);
+        g.addColorStop(0, hexA('#ffffff', 0.55)); g.addColorStop(0.25, cc); g.addColorStop(1, hexA('#000000', 0.55));
+        c.fillStyle = cc; c.beginPath(); c.arc(bx, by, br, 0, TAU); c.fill();
+        c.fillStyle = g; c.beginPath(); c.arc(bx, by, br, 0, TAU); c.fill();
+        c.strokeStyle = 'rgba(0,0,0,0.75)'; c.lineWidth = 2.5; c.stroke();
+      };
+      const eyes = (ex, ey, s, ang, ec) => {
+        const ox = Math.cos(ang), oy = Math.sin(ang);
+        c.fillStyle = ec || '#fef08a';
+        for (const k of [-1, 1]) { c.beginPath(); c.arc(ex + ox * s * 0.45 - oy * s * 0.32 * k, ey + oy * s * 0.45 + ox * s * 0.32 * k, s * 0.13, 0, TAU); c.fill(); }
+      };
+      const ang = m.facing;
+      if (m.key === 'wolves') {
+        body(x - r * 0.75, y + r * 0.35, r * 0.55, '#64748b'); eyes(x - r * 0.75, y + r * 0.35, r * 0.55, ang);
+        body(x + r * 0.75, y + r * 0.35, r * 0.55, '#64748b'); eyes(x + r * 0.75, y + r * 0.35, r * 0.55, ang);
+        body(x, y - r * 0.2, r * 0.75, col); eyes(x, y - r * 0.2, r * 0.75, ang);
+      } else if (m.key === 'krugs') {
+        body(x + r * 0.7, y + r * 0.4, r * 0.5, '#78716c'); eyes(x + r * 0.7, y + r * 0.4, r * 0.5, ang, '#fb923c');
+        body(x, y, r * 0.85, col); eyes(x, y, r * 0.85, ang, '#fb923c');
+      } else if (m.key === 'dragon' || m.key === 'baron') {
+        // kanatlar / dikenler
+        c.fillStyle = hexA(col, 0.85); c.strokeStyle = 'rgba(0,0,0,0.7)'; c.lineWidth = 2;
+        const flap = Math.sin(t * (m.key === 'dragon' ? 5 : 2)) * 0.25;
+        for (const k of [-1, 1]) {
+          c.beginPath();
+          if (m.key === 'dragon') {
+            c.moveTo(x, y); c.lineTo(x + k * r * 1.9, y - r * (0.9 + flap)); c.lineTo(x + k * r * 1.5, y + r * 0.1); c.lineTo(x + k * r * 1.1, y + r * 0.35);
+          } else {
+            c.moveTo(x + k * r * 0.4, y - r * 0.6); c.lineTo(x + k * r * 1.35, y - r * (1.25 + flap * 0.4)); c.lineTo(x + k * r * 0.95, y - r * 0.15);
+          }
+          c.closePath(); c.fill(); c.stroke();
+        }
+        body(x, y, r, col);
+        c.fillStyle = hexA('#000000', 0.25);
+        for (let i = 0; i < 5; i++) { c.beginPath(); c.arc(x - r * 0.5 + i * r * 0.25, y + r * 0.45, r * 0.09, 0, TAU); c.fill(); }
+        eyes(x, y, r, ang, m.key === 'baron' ? '#f0abfc' : '#fde047');
+      } else {
+        body(x, y, r, col);
+        if (m.def.buff) {
+          c.strokeStyle = hexA('#ffffff', 0.5); c.lineWidth = 2;
+          c.setLineDash([4, 6]); c.lineDashOffset = -t * 12;
+          c.beginPath(); c.arc(x, y, r + 6, 0, TAU); c.stroke(); c.setLineDash([]);
+        }
+        eyes(x, y, r, ang);
+      }
+      if (m.flash > 0) { c.fillStyle = `rgba(255,255,255,${m.flash / 0.12 * 0.45})`; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill(); }
+      // can barı (yalnızca hasarlıysa ya da destansıysa)
+      if (m.hp < m.maxHp - 1 || m.epic) {
+        const bw = m.epic ? 110 : 54, bh = m.epic ? 8 : 6, bx = m.x - bw / 2, by = m.y - r - (m.epic ? 34 : 18);
+        c.fillStyle = 'rgba(5,8,12,0.85)'; c.fillRect(bx - 2, by - 2, bw + 4, bh + 4);
+        c.fillStyle = '#d97706'; c.fillRect(bx, by, bw * Math.max(0, m.hp) / m.maxHp, bh);
+        // çarp eşiği
+        const thr = 900 / m.maxHp * bw;
+        if (thr < bw) { c.fillStyle = 'rgba(253,224,71,0.9)'; c.fillRect(bx + thr - 1, by - 2, 2, bh + 4); }
+        if (m.epic) {
+          c.fillStyle = '#f8fafc'; c.font = '700 12px "Chakra Petch", sans-serif'; c.textAlign = 'center'; c.textBaseline = 'bottom';
+          c.lineWidth = 3; c.strokeStyle = 'rgba(0,0,0,0.8)';
+          c.strokeText(m.name, m.x, by - 4); c.fillText(m.name, m.x, by - 4);
         }
       }
       c.restore();

@@ -270,6 +270,9 @@
     .sb-team .tn { font-family: var(--head); font-weight: 700; font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sb-team .k { font-family: var(--head); font-weight: 700; font-size: 34px; margin-left: auto; }
     .sb-team.r .k { margin-left: 0; margin-right: auto; }
+    .sb-team .obj { display: flex; gap: 8px; font-family: var(--head); font-weight: 700; font-size: 13px; color: #cbd5e1; white-space: nowrap; }
+    .sb-team .obj i { font-style: normal; display: inline-flex; align-items: center; gap: 3px; }
+    .sb-team .obj i::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--oc); border: 1.5px solid rgba(0,0,0,.6); }
     .sb-mid { text-align: center; }
     .sb-mid .series { font-family: var(--head); font-weight: 700; font-size: 13px; letter-spacing: 0.04em; color: var(--muted); }
     .sb-mid .clock { font-family: var(--head); font-size: 22px; color: var(--gold-2); font-variant-numeric: tabular-nums; }
@@ -446,10 +449,10 @@
       <div>
         <div class="hero-kicker">League of Legends turnuva simülatörü</div>
         <h1 class="hero-logo"><span class="a">MAYHEM</span><span class="b">LİGİ</span></h1>
-        <p class="hero-lead">Takımını kur, her koridor için şampiyonunu seç. Rünlerini, sihirdar büyülerini ve 6 eşyalık buildini diz. 8 takımlı turnuvada takım savaşlarını canlı izle, ultileri sen at, odağı sen belirle.</p>
+        <p class="hero-lead">Takımını kur, her koridor için şampiyonunu seç. Rünlerini, sihirdar büyülerini ve 6 eşyalık buildini diz. 8 takımlı turnuvada 5 dakikalık maçları canlı izle: orman döner, ejder ve baron için savaşılır, ultileri sen at, odağı sen belirle.</p>
         <div class="feats">
           <div class="feat"><b id="featChamps">170+</b><span>şampiyon, her birinin kendine özel ultisi</span></div>
-          <div class="feat"><b>70+</b><span>gerçek item, 17 ana rün, 8 sihirdar büyüsü</span></div>
+          <div class="feat"><b>95+</b><span>güncel item, 17 ana rün, 8 sihirdar büyüsü</span></div>
           <div class="feat"><b>8</b><span>takımlı eleme turnuvası, final 3 maçta 2</span></div>
         </div>
       </div>
@@ -559,10 +562,10 @@
       </div>
       <div class="controls">
         <div class="grp">
-          <div class="speed" id="speed"><button data-s="0">❚❚</button><button data-s="1" class="on">1x</button><button data-s="2">2x</button><button data-s="4">4x</button></div>
-          <label class="toggle"><input type="checkbox" id="autoUlt"> Otomatik ulti</label>
+          <div class="speed" id="speed"><button data-s="0">❚❚</button><button data-s="1" class="on">1x</button><button data-s="2">2x</button><button data-s="4">4x</button><button data-s="8">8x</button></div>
+          <label class="toggle"><input type="checkbox" id="autoUlt" checked> Otomatik ulti</label>
         </div>
-        <div class="hint">Düşmana tıkla: takımın ona odaklansın · Ulti hazır olunca kartındaki ikona ya da <kbd>1</kbd>–<kbd>5</kbd>'e bas</div>
+        <div class="hint">Düşmana tıkla: takımın ona odaklansın · Ulti hazır olunca kartındaki ikona ya da <kbd>1</kbd>–<kbd>5</kbd>'e bas · 5:00'da skoru yüksek olan kazanır</div>
         <button class="btn ghost small" id="skip">Maçı atla ⏭</button>
       </div>
     </div>
