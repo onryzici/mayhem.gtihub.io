@@ -716,6 +716,9 @@
 
   // ---------- 5. savaş ----------
   let series = null, viewer = null, multi = {};
+  // Maçtaki takımlar (taraf sırasıyla), bizim tarafımız ve online oturum
+  let G = { teams: [], mySide: 0, online: null };
+  const sideTeam = side => G.teams[side] || { name: '', color: '#94a3b8', tag: '' };
 
   function startSeries() {
     const m = userMatch();
@@ -748,7 +751,7 @@
 
   function hudCard(u, side, i) {
     const det = S.detail[u.champ.id] || {};
-    const col = side ? series.opp.color : S.team.color;
+    const col = sideTeam(u.side).color;
     return `<div class="pc" style="--c:${col}" data-uid="${u.uid}">
       <div class="por"><img src="${portrait(u.champ, u.skin)}" data-fb="${icon(u.champ)}"${porStyle(u.skin)} alt=""><span class="lv">${M.LEVEL}</span><span class="cdt"></span></div>
       <div style="min-width:0">
@@ -767,18 +770,30 @@
     multi = {};
     vo.played = new Set();
     const sim = new M.Sim([simTeam(S.team), simTeam(series.opp)], { manual: [!S.autoUlt, false] });
-    const teams = [S.team, series.opp];
-    $('sbA').innerHTML = `${teamBadge(S.team)}<span class="tn">${esc(S.team.name)}</span><span class="obj" id="oA"></span><span class="k" id="kA">0</span>`;
-    $('sbB').innerHTML = `${teamBadge(series.opp)}<span class="tn">${esc(series.opp.name)}</span><span class="obj" id="oB"></span><span class="k" id="kB">0</span>`;
-    $('sbSeries').textContent = series.bo === 1 ? `${ROUND_NAMES[S.tour.round]} · Tek maç` : `${ROUND_NAMES[S.tour.round]} · Maç ${series.game} · ${series.wins[0]}-${series.wins[1]}`;
-    $('hudA').innerHTML = sim.units.filter(u => u.side === 0).map((u, i) => hudCard(u, 0, i)).join('');
-    $('hudB').innerHTML = sim.units.filter(u => u.side === 1).map((u, i) => hudCard(u, 1, i)).join('');
+    G = { teams: [S.team, series.opp], mySide: 0, online: null };
+    setupBattle(sim, series.bo === 1 ? `${ROUND_NAMES[S.tour.round]} · Tek maç` : `${ROUND_NAMES[S.tour.round]} · Maç ${series.game} · ${series.wins[0]}-${series.wins[1]}`, {});
+  }
+
+  function setupBattle(sim, label, extra) {
+    const me = G.mySide, op = 1 - me;
+    const tA = sideTeam(me), tB = sideTeam(op);
+    $('sbA').innerHTML = `${teamBadge(tA)}<span class="tn">${esc(tA.name)}</span><span class="obj" id="oA"></span><span class="k" id="kA">0</span>`;
+    $('sbB').innerHTML = `${teamBadge(tB)}<span class="tn">${esc(tB.name)}</span><span class="obj" id="oB"></span><span class="k" id="kB">0</span>`;
+    $('sbSeries').textContent = label;
+    $('hudA').innerHTML = sim.units.filter(u => u.side === me && !u.isPet).map((u, i) => hudCard(u, 0, i)).join('');
+    $('hudB').innerHTML = sim.units.filter(u => u.side === op && !u.isPet).map((u, i) => hudCard(u, 1, i)).join('');
     $('killfeed').innerHTML = '';
     $('fxHost').innerHTML = '';
+    const online = !!G.online;
+    document.querySelectorAll('#speed button').forEach(b => { b.disabled = online && b.dataset.s !== '1'; });
+    $('skip').hidden = online;
+    if (online) setSpeed(1);
     if (viewer) viewer.stop();
     viewer = new R.Viewer($('arena'), sim, {
-      colors: teams.map(t => t.color),
-      speed: S.speed,
+      colors: G.teams.map(t => t.color),
+      speed: online ? 1 : S.speed,
+      mySide: me,
+      gate: extra.gate,
       assets: {
         img,
         iconImg: u => {
@@ -788,7 +803,7 @@
         },
         summIcon, itemIcon
       },
-      hooks: { onEnd: onGameEnd, onUlt: callout, onKill: onKill, onFrame: hudTick, onObjective }
+      hooks: { onEnd: extra.onEnd || onGameEnd, onUlt: callout, onKill: onKill, onFrame: extra.onFrame ? (s, dt) => { extra.onFrame(s, dt); hudTick(s, dt); } : hudTick, onObjective, focus: extra.focus }
     });
     hudT = 0;
   }
@@ -798,13 +813,13 @@
     hudT -= dt;
     if (hudT > 0) return;
     hudT = 0.1;
-    $('kA').textContent = sim.kills[0];
-    $('kB').textContent = sim.kills[1];
+    $('kA').textContent = sim.kills[G.mySide];
+    $('kB').textContent = sim.kills[1 - G.mySide];
     const t = Math.min(M.GAME_LEN, Math.floor(sim.t));
     $('sbClock').textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')} / ${Math.floor(M.GAME_LEN / 60)}:00`;
     const obj = s => `<i style="--oc:#94a3b8" title="Yıkılan kule">${sim.towersDown[s]}</i><i style="--oc:#f97316" title="Ejder">${sim.drakes[s]}</i><i style="--oc:#a855f7" title="Baron">${sim.barons[s]}</i><i style="--oc:#facc15" title="Altın">${(sim.gold[s] / 1000).toFixed(1)}k</i>`;
-    $('oA').innerHTML = obj(0);
-    $('oB').innerHTML = obj(1);
+    $('oA').innerHTML = obj(G.mySide);
+    $('oB').innerHTML = obj(1 - G.mySide);
     for (const u of sim.units) {
       if (u.isPet) continue;
       const el = document.querySelector(`.pc[data-uid="${u.uid}"]`);
@@ -825,15 +840,15 @@
   }
 
   function callout(u) {
-    if (!vo.played.has(u.uid) && playVO(u.champ, 'choose', u.side ? 0.45 : 0.6, false)) vo.played.add(u.uid);
+    if (!vo.played.has(u.uid) && playVO(u.champ, 'choose', u.side === G.mySide ? 0.6 : 0.45, false)) vo.played.add(u.uid);
     const det = S.detail[u.champ.id] || {};
     const col = (u.ult[1] && u.ult[1].color) || '#f0d48a';
     const name = u.stolenName && u.ult[0] === 'steal' ? u.stolenName : det.ultName || 'Ulti';
     const el = document.createElement('div');
-    el.className = `callout ${u.side ? 'r' : 'l'}`;
+    el.className = `callout ${u.side === G.mySide ? 'l' : 'r'}`;
     el.style.setProperty('--c', col);
     el.innerHTML = `<div class="face" style="background-image:url('${splashArt(u.champ, u.skin)}')"></div><img class="uicon" src="${det.ultIcon || icon(u.champ)}" alt=""><div><div class="cn">${esc(u.champ.name.toLocaleUpperCase('tr'))}</div><div class="un">${esc(name)}</div></div>`;
-    $('fxHost').querySelectorAll(`.callout.${u.side ? 'r' : 'l'}`).forEach(x => x.remove());
+    $('fxHost').querySelectorAll(`.callout.${u.side === G.mySide ? 'l' : 'r'}`).forEach(x => x.remove());
     $('fxHost').appendChild(el);
     setTimeout(() => el.remove(), 1750);
   }
@@ -851,8 +866,8 @@
   function onKill(e) {
     const { killer, victim } = e;
     const sim = viewer.sim;
-    const col = killer.side ? series.opp.color : S.team.color;
-    const vcol = victim.side ? series.opp.color : S.team.color;
+    const col = sideTeam(killer.side).color;
+    const vcol = sideTeam(victim.side).color;
     const el = document.createElement('div');
     el.className = 'kf';
     el.innerHTML = `<img src="${icon(killer.champ)}" style="--c:${col}" alt=""><span class="sw">⚔</span><img src="${icon(victim.champ)}" style="--c:${vcol}" alt="">`;
@@ -868,35 +883,35 @@
     const names = ['', '', 'ÇİFTE SKOR!', 'ÜÇLÜ SKOR!', 'DÖRTLÜ SKOR!', 'PENTAKILL!'];
     if (m.n >= 2) announce(names[Math.min(5, m.n)], killer.champ.name, col);
     else if (e.first) announce('İLK KAN!', `${killer.champ.name} → ${victim.champ.name}`, col);
-    else if (ace) announce('AS!', killer.side ? series.opp.name : S.team.name, col);
+    else if (ace) announce('AS!', sideTeam(killer.side).name, col);
   }
 
   function onObjective(e) {
     const m = e.m;
     if (e.kind === 'tower' || e.kind === 'nexus') {
-      const team = e.side ? series.opp : S.team;
+      const team = sideTeam(e.side);
       announce(e.kind === 'nexus' ? 'NEXUS YIKILDI!' : 'KULE YIKILDI', `${team.name}${e.u ? ' · ' + e.u.champ.name : ''}`, team.color);
       return;
     }
     if (e.kind === 'spawn') { if (m.key === 'baron') announce('BARON NASHOR', 'Nehrin üstünde uyandı', m.color); else announce('EJDER', 'Nehrin altında belirdi', m.color); return; }
-    const team = e.side ? series.opp : S.team;
+    const team = sideTeam(e.side);
     announce(m.key === 'baron' ? 'BARON ALINDI!' : 'EJDER ALINDI!', `${team.name} · ${e.u.champ.name}`, team.color);
   }
 
   $('hudA').addEventListener('click', e => {
     const b = e.target.closest('.ultbtn');
-    if (b && viewer) viewer.sim.requestUlt(+b.dataset.ult);
+    if (b && viewer) askUlt(+b.dataset.ult);
   });
   document.addEventListener('keydown', e => {
     if (!$('battle').classList.contains('active') || !viewer) return;
     if (e.key >= '1' && e.key <= '5') {
-      const u = viewer.sim.units.filter(x => x.side === 0 && !x.isPet)[+e.key - 1];
-      if (u) viewer.sim.requestUlt(u.uid);
+      const u = viewer.sim.units.filter(x => x.side === G.mySide && !x.isPet)[+e.key - 1];
+      if (u) askUlt(u.uid);
     }
-    if (e.key === ' ') { e.preventDefault(); setSpeed(viewer.speed ? 0 : (S.speed || 1)); }
+    if (e.key === ' ' && !G.online) { e.preventDefault(); setSpeed(viewer.speed ? 0 : (S.speed || 1)); }
   });
   function setSpeed(s) {
-    if (s) S.speed = s;
+    if (s && !G.online) S.speed = s;
     if (viewer) viewer.speed = s;
     document.querySelectorAll('#speed button').forEach(x => x.classList.toggle('on', +x.dataset.s === s));
   }
@@ -906,9 +921,12 @@
   });
   $('autoUlt').addEventListener('change', e => {
     S.autoUlt = e.target.checked;
-    if (viewer) viewer.sim.manual[0] = !S.autoUlt;
+    if (!viewer) return;
+    if (G.online) G.online.cmd({ type: 'manual', side: G.mySide, on: !S.autoUlt });
+    else viewer.sim.manual[0] = !S.autoUlt;
   });
-  $('skip').addEventListener('click', () => viewer && viewer.skip());
+  function askUlt(uid) { if (G.online) G.online.cmd({ type: 'ult', uid }); else viewer.sim.requestUlt(uid); }
+  $('skip').addEventListener('click', () => viewer && !G.online && viewer.skip());
 
   function recordStats(sim) {
     for (const u of sim.units) {
@@ -984,7 +1002,7 @@
   });
 
   // ---------- 6. son ----------
-  function renderEnd() {
+  let renderEnd = function () {
     const T = S.tour;
     const won = T.champion === S.team;
     const lastRound = T.path.length ? T.path[T.path.length - 1].round : 0;
@@ -1049,6 +1067,460 @@
       show('intro');
     }
   });
+
+  // =====================================================================
+  // ---------- 7. profil, LP ve rank ----------
+  const TIERS = [['iron', 'Demir'], ['bronze', 'Bronz'], ['silver', 'Gümüş'], ['gold', 'Altın'], ['platinum', 'Platin'], ['emerald', 'Zümrüt'], ['diamond', 'Elmas'], ['master', 'Usta'], ['grandmaster', 'Büyük Usta'], ['challenger', 'Şampiyonluk']];
+  const DIVS = ['IV', 'III', 'II', 'I'];
+  const START_LP = 800;
+  const emblem = tier => `https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-emblem/emblem-${tier}.png`;
+  function rankOf(p) {
+    p = Math.max(0, Math.round(p));
+    if (p >= 3600) return { tier: 9, div: '', lp: p - 3600, key: 'challenger', name: 'Şampiyonluk', p };
+    if (p >= 3200) return { tier: 8, div: '', lp: p - 3200, key: 'grandmaster', name: 'Büyük Usta', p };
+    if (p >= 2800) return { tier: 7, div: '', lp: p - 2800, key: 'master', name: 'Usta', p };
+    const tier = Math.floor(p / 400), d = Math.floor((p % 400) / 100);
+    return { tier, div: DIVS[d], lp: p % 100, key: TIERS[tier][0], name: TIERS[tier][1], p };
+  }
+  const rankLabel = p => { const r = rankOf(p); return `${r.name}${r.div ? ' ' + r.div : ''}`; };
+  function loadProfile() {
+    let pr = null;
+    try { pr = JSON.parse(localStorage.getItem('mayhemProfile') || 'null'); } catch (e) {}
+    if (!pr || !pr.id) pr = { id: Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4), lp: START_LP, w: 0, l: 0, hist: [], solo: { tours: 0, titles: 0, best: 3 } };
+    pr.solo = pr.solo || { tours: 0, titles: 0, best: 3 };
+    return pr;
+  }
+  const PROFILE = loadProfile();
+  const saveProfile = () => { try { localStorage.setItem('mayhemProfile', JSON.stringify(PROFILE)); } catch (e) {} };
+  saveProfile();
+  // Elo tabanlı LP: güçlü rakibi yenmek daha çok kazandırır
+  function lpDelta(me, opp, won) {
+    const E = 1 / (1 + Math.pow(10, (opp - me) / 400));
+    const d = Math.round(40 * ((won ? 1 : 0) - E));
+    return won ? Math.max(8, d) : Math.min(-8, d);
+  }
+  function soloBadge() {
+    const s = PROFILE.solo;
+    if (s.titles >= 5) return 'Efsane Şampiyon';
+    if (s.titles >= 1) return `${s.titles}× Turnuva Şampiyonu`;
+    if (s.tours) return ['Finalist', 'Yarı Finalist', 'Çeyrek Finalist', 'Çeyrek Finalist'][Math.min(3, s.best)];
+    return 'Henüz turnuva yok';
+  }
+
+  function renderRanked() {
+    const r = rankOf(PROFILE.lp);
+    $('rkEmblem').src = emblem(r.key);
+    $('rkTier').textContent = rankLabel(PROFILE.lp);
+    $('rkLp').textContent = `${r.lp} LP`;
+    $('rkBar').style.setProperty('--v', `${r.tier >= 7 ? Math.min(100, r.lp / 4) : r.lp}%`);
+    const games = PROFILE.w + PROFILE.l;
+    $('rkWL').textContent = `${PROFILE.w}G ${PROFILE.l}M${games ? ` · %${Math.round(PROFILE.w / games * 100)} kazanma` : ''}`;
+    $('rkSolo').textContent = `Tek oyunculu: ${soloBadge()} · ${PROFILE.solo.tours} turnuva`;
+    $('rkHist').innerHTML = PROFILE.hist.slice(0, 8).map(h => `<div class="rk-h ${h.won ? 'w' : 'l'}"><b>${h.won ? 'Zafer' : 'Bozgun'}</b><span>${esc(h.opp)}</span><em>${h.d > 0 ? '+' : ''}${h.d} LP</em></div>`).join('') || '<div class="muted" style="font-size:13px">Henüz dereceli maç yok.</div>';
+    $('lnRank').src = emblem(r.key);
+    $('lnRankTxt').textContent = `${rankLabel(PROFILE.lp)} · ${r.lp} LP`;
+  }
+
+  // ---------- 8. ağ: herkese açık MQTT üzerinden eşler arası ----------
+  const BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt'];
+  const P = 'mayhemligi/v2/';
+  const NET = { c: null, ready: null, subs: new Map(), broker: '' };
+  function netConnect() {
+    if (NET.ready) return NET.ready;
+    NET.ready = new Promise((resolve, reject) => {
+      if (!window.mqtt) { reject(new Error('Ağ kütüphanesi yüklenemedi')); return; }
+      let i = 0;
+      const tryNext = () => {
+        if (i >= BROKERS.length) { NET.ready = null; reject(new Error('Sunucuya bağlanılamadı')); return; }
+        const url = BROKERS[i++];
+        const c = window.mqtt.connect(url, { clean: true, connectTimeout: 7000, reconnectPeriod: 0, keepalive: 30, clientId: 'mh_' + PROFILE.id + '_' + Math.random().toString(36).slice(2, 6) });
+        let ok = false;
+        c.on('connect', () => {
+          ok = true; NET.c = c; NET.broker = url;
+          c.on('message', (topic, buf) => {
+            let m; try { m = JSON.parse(buf.toString()); } catch (e) { return; }
+            if (!m || m.from === PROFILE.id) return;
+            const fn = NET.subs.get(topic);
+            if (fn) fn(m);
+          });
+          c.on('close', () => { NET.ready = null; NET.c = null; mmLost(); });
+          c.options.reconnectPeriod = 0;
+          resolve(c);
+        });
+        c.on('error', () => { if (!ok) { try { c.end(true); } catch (e) {} tryNext(); } });
+        setTimeout(() => { if (!ok) { try { c.end(true); } catch (e) {} tryNext(); } }, 8000);
+      };
+      tryNext();
+    });
+    return NET.ready;
+  }
+  function sub(topic, fn) { NET.subs.set(topic, fn); if (NET.c) NET.c.subscribe(topic); }
+  function unsub(topic) { NET.subs.delete(topic); if (NET.c) NET.c.unsubscribe(topic); }
+  function pub(topic, m) { if (NET.c) NET.c.publish(topic, JSON.stringify({ ...m, from: PROFILE.id })); }
+  const inbox = id => `${P}u/${id}`;
+
+  // ---------- 9. eşleşme ve odalar ----------
+  const MM = { state: 'idle', since: 0, seen: new Map(), rooms: new Map(), pending: null, timer: null, code: '' };
+  const meCard = () => ({ name: S.team.name, tag: S.team.tag, color: S.team.color, lp: PROFILE.lp });
+  const mmWindow = () => Math.min(1400, 150 + 30 * (Date.now() - MM.since) / 1000);
+  function needTeam() {
+    if (!S.team.name) {
+      const name = $('teamName').value.trim();
+      if (name.length < 2) { lnTab('home'); goForm(); rkStatus('Önce sağdaki panelden takım adını yaz.'); return true; }
+      S.team.name = name;
+      S.team.tag = ($('teamTag').value.trim() || autoTag(name)).toLocaleUpperCase('tr');
+    }
+    return false;
+  }
+  function rkStatus(t, busy) { $('rkStatus').innerHTML = t ? `${busy ? '<i class="spin"></i>' : ''}${t}` : ''; }
+  async function lobbyJoin() {
+    try { await netConnect(); } catch (e) { rkStatus(`Bağlantı hatası: ${e.message}`); return false; }
+    if (!NET.subs.has(`${P}q`)) {
+      sub(`${P}q`, m => { MM.seen.set(m.from, { ...m, at: Date.now() }); });
+      sub(`${P}rooms`, m => { if (m.closed) MM.rooms.delete(m.from); else MM.rooms.set(m.from, { ...m, at: Date.now() }); renderRooms(); });
+      sub(inbox(PROFILE.id), onInbox);
+      clearInterval(MM.timer);
+      MM.timer = setInterval(mmTick, 1000);
+    }
+    return true;
+  }
+  function renderRooms() {
+    const now = Date.now();
+    for (const [k, r] of MM.rooms) if (now - r.at > 7000) MM.rooms.delete(k);
+    for (const [k, q] of MM.seen) if (now - q.at > 6000) MM.seen.delete(k);
+    const list = [...MM.rooms.values()];
+    $('rkRooms').innerHTML = list.length ? list.map(r => `<button type="button" class="rk-room" data-join="${r.from}"><span class="badge sm" style="--c:${r.color}">${esc(r.tag)}</span><div><b>${esc(r.name)}</b><small>${rankLabel(r.lp)} · Kod ${esc(r.code)}</small></div><em>Katıl →</em></button>`).join('') : '<div class="muted" style="font-size:13px">Açık oda yok. Bir tane kur!</div>';
+    const q = [...MM.seen.values()].length + (MM.state === 'queue' ? 1 : 0);
+    $('rkQueueInfo').textContent = NET.c ? `${q} oyuncu maç arıyor · ${list.length} açık oda` : 'Lobiye bağlanınca kuyruk ve odalar görünür.';
+  }
+  function mmTick() {
+    renderRooms();
+    if (MM.state === 'queue') {
+      pub(`${P}q`, { ...meCard(), w: mmWindow() });
+      const waited = Math.floor((Date.now() - MM.since) / 1000);
+      rkStatus(`Maç aranıyor… ${Math.floor(waited / 60)}:${String(waited % 60).padStart(2, '0')} · ±${Math.round(mmWindow())} puan aralığı`, true);
+      if (MM.pending && Date.now() - MM.pending.at > 5000) MM.pending = null;
+      if (!MM.pending) {
+        const cand = [...MM.seen.values()].filter(o => Math.abs(o.lp - PROFILE.lp) <= Math.max(mmWindow(), o.w || 0)).sort((a, b) => Math.abs(a.lp - PROFILE.lp) - Math.abs(b.lp - PROFILE.lp))[0];
+        if (cand && PROFILE.id < cand.from) {
+          MM.pending = { to: cand.from, match: Math.random().toString(36).slice(2, 10), at: Date.now() };
+          pub(inbox(cand.from), { type: 'invite', match: MM.pending.match, card: meCard(), ranked: true });
+        }
+      }
+    } else if (MM.state === 'hosting') {
+      pub(`${P}rooms`, { ...meCard(), code: MM.code });
+    }
+  }
+  function onInbox(m) {
+    if (m.type === 'invite' && MM.state === 'queue') {
+      if (MM.pending) { pub(inbox(m.from), { type: 'decline' }); return; }
+      pub(inbox(m.from), { type: 'accept', match: m.match, card: meCard() });
+      beginMatch({ id: m.match, host: false, oppId: m.from, opp: m.card, ranked: true });
+    } else if (m.type === 'accept' && MM.state === 'queue' && MM.pending && MM.pending.to === m.from && MM.pending.match === m.match) {
+      beginMatch({ id: m.match, host: true, oppId: m.from, opp: m.card, ranked: true });
+    } else if (m.type === 'decline' && MM.pending && MM.pending.to === m.from) {
+      MM.pending = null;
+    } else if (m.type === 'join') {
+      if (MM.state === 'hosting' && (!m.code || m.code === MM.code)) {
+        const id = Math.random().toString(36).slice(2, 10);
+        pub(inbox(m.from), { type: 'welcome', match: id, card: meCard() });
+        pub(`${P}rooms`, { closed: true });
+        beginMatch({ id, host: true, oppId: m.from, opp: m.card, ranked: false });
+      } else pub(inbox(m.from), { type: 'full' });
+    } else if (m.type === 'welcome' && MM.state === 'joining') {
+      beginMatch({ id: m.match, host: false, oppId: m.from, opp: m.card, ranked: false });
+    } else if (m.type === 'full' && MM.state === 'joining') {
+      MM.state = 'idle'; rkStatus('Oda dolu ya da kapandı.'); rkButtons();
+    }
+  }
+  function mmLost() { if (MM.state === 'queue' || MM.state === 'hosting' || MM.state === 'joining') { MM.state = 'idle'; rkStatus('Bağlantı koptu. Tekrar dene.'); rkButtons(); } }
+  function rkButtons() {
+    const st = MM.state;
+    $('rkQueue').textContent = st === 'queue' ? 'Aramayı iptal et' : 'Dereceli maç ara';
+    $('rkQueue').classList.toggle('ghost', st === 'queue');
+    $('rkHost').textContent = st === 'hosting' ? 'Odayı kapat' : 'Oda kur';
+    $('rkQueue').disabled = st === 'hosting' || st === 'joining';
+    $('rkHost').disabled = st === 'queue' || st === 'joining';
+  }
+  $('rkQueue').addEventListener('click', async () => {
+    if (MM.state === 'queue') { MM.state = 'idle'; MM.pending = null; rkStatus(''); rkButtons(); return; }
+    if (needTeam()) return;
+    rkStatus('Lobiye bağlanılıyor…', true);
+    if (!await lobbyJoin()) return;
+    MM.state = 'queue'; MM.since = Date.now(); MM.pending = null;
+    rkButtons(); mmTick();
+  });
+  $('rkHost').addEventListener('click', async () => {
+    if (MM.state === 'hosting') { pub(`${P}rooms`, { closed: true }); MM.state = 'idle'; rkStatus(''); rkButtons(); return; }
+    if (needTeam()) return;
+    rkStatus('Lobiye bağlanılıyor…', true);
+    if (!await lobbyJoin()) return;
+    MM.state = 'hosting';
+    MM.code = Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPRSTUVYZ23456789'[Math.floor(Math.random() * 29)]).join('');
+    rkStatus(`Oda açık · Kod <b class="rk-code">${MM.code}</b> · Rakip bekleniyor…`, true);
+    rkButtons(); mmTick();
+  });
+  async function joinRoom(hostId, code) {
+    if (needTeam()) return;
+    if (!await lobbyJoin()) return;
+    if (!hostId) {
+      rkStatus('Oda aranıyor…', true);
+      await new Promise(r => setTimeout(r, 2500));
+      const r = [...MM.rooms.values()].find(x => x.code === code);
+      if (!r) { rkStatus(`${code} kodlu oda bulunamadı.`); return; }
+      hostId = r.from;
+    }
+    MM.state = 'joining'; rkButtons();
+    rkStatus('Odaya katılınıyor…', true);
+    pub(inbox(hostId), { type: 'join', code, card: meCard() });
+    setTimeout(() => { if (MM.state === 'joining') { MM.state = 'idle'; rkStatus('Oda yanıt vermedi.'); rkButtons(); } }, 8000);
+  }
+  $('rkJoin').addEventListener('click', () => { const code = $('rkCode').value.trim().toUpperCase(); if (code.length === 4) joinRoom(null, code); else rkStatus('4 haneli oda kodunu yaz.'); });
+  $('rkRooms').addEventListener('click', e => { const b = e.target.closest('[data-join]'); if (b) { const r = MM.rooms.get(b.dataset.join); joinRoom(b.dataset.join, r && r.code); } });
+  $('lnTabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b && b.dataset.ln === 'ranked') { renderRanked(); renderRooms(); lobbyJoin(); } });
+
+  // ---------- 10. online maç oturumu ----------
+  const DRAFT_SECS = 180;
+  const teamPayload = t => ({ name: t.name, tag: t.tag, color: t.color, roster: t.roster.map(r => ({ id: r.champ.id, role: r.role, skin: r.skin || 0, boots: r.boots, items: r.items, keystone: r.keystone, secondary: r.secondary, summs: r.summs })) });
+  const teamFrom = p => ({ name: p.name, tag: p.tag, color: p.color, roster: p.roster.map(r => ({ ...r, champ: S.champs[r.id] })).filter(r => r.champ) });
+  let OM = null;
+  function beginMatch(o) {
+    MM.state = 'match'; MM.pending = null; rkButtons(); rkStatus('');
+    const topic = `${P}m/${o.id}`;
+    OM = { ...o, topic, phase: 'draft', deadline: Date.now() + DRAFT_SECS * 1000, myReady: false, oppReady: false, myTeam: null, oppTeam: null, lastHeard: Date.now(), oppTick: 0, cmdN: 0, snap: null, hostEnd: null, oppPhase: 'draft' };
+    sub(topic, onMatchMsg);
+    OM.hb = setInterval(() => {
+      if (!OM) return;
+      if (OM.phase === 'draft') pub(OM.topic, { type: 'hb', phase: 'draft', ready: OM.myReady, left: OM.host ? Math.max(0, OM.deadline - Date.now()) : undefined });
+      const silent = Date.now() - OM.lastHeard;
+      if (OM.phase === 'draft' && silent > 15000) matchAbort('Rakibin bağlantısı koptu. Maç iptal edildi, LP değişmedi.');
+      if (OM.phase === 'game' && silent > 12000) finishOnline({ forfeit: true });
+      if (OM.phase === 'draft') onBar();
+      if (OM.phase === 'draft' && Date.now() >= OM.deadline && !OM.myReady) autoReady();
+    }, 1000);
+    // takım kurma ekranı
+    S.mode = 'online';
+    S.team.roster = [];
+    S.draft = { idx: 0, options: draftOptions(0), rerolls: 3 };
+    renderDraft();
+    show('draft');
+    onBar();
+    announceOnline();
+  }
+  function announceOnline() {
+    const el = document.createElement('div');
+    el.className = 'mm-found';
+    el.innerHTML = `<b>MAÇ BULUNDU</b><span>${esc(OM.opp.name)} · ${rankLabel(OM.opp.lp)}</span>`;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 2600);
+    playVO(S.champs[Object.keys(S.champs)[Math.floor(Math.random() * Object.keys(S.champs).length)]], 'ban', 0.5);
+  }
+  function onBar() {
+    let bar = $('onBar');
+    if (!OM || OM.phase !== 'draft') { if (bar) bar.remove(); return; }
+    if (!bar) { bar = document.createElement('div'); bar.id = 'onBar'; bar.className = 'on-bar'; document.body.appendChild(bar); }
+    const left = Math.max(0, Math.ceil((OM.deadline - Date.now()) / 1000));
+    bar.innerHTML = `<div class="ob-l"><span class="chip gold">${OM.ranked ? 'DERECELİ' : 'ÖZEL ODA'}</span><span class="ob-vs">${esc(S.team.name || 'Sen')} <i>vs</i> <span class="badge sm" style="--c:${OM.opp.color}">${esc(OM.opp.tag)}</span> ${esc(OM.opp.name)} <small>${rankLabel(OM.opp.lp)}</small></span></div>
+      <div class="ob-t${left <= 30 ? ' hot' : ''}">${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}</div>
+      <div class="ob-r"><span class="${OM.oppReady ? 'ok' : ''}">Rakip: ${OM.oppReady ? 'HAZIR ✓' : 'takımını kuruyor…'}</span><span class="${OM.myReady ? 'ok' : ''}">Sen: ${OM.myReady ? 'HAZIR ✓' : 'kuruyor'}</span></div>`;
+  }
+  function onMatchMsg(m) {
+    if (!OM || m.from !== OM.oppId) return;
+    OM.lastHeard = Date.now();
+    if (m.type === 'hb') {
+      if (!OM.host && m.left !== undefined) OM.deadline = Date.now() + m.left;
+      if (m.ready && !OM.oppReady && OM.oppTeam) OM.oppReady = true;
+    } else if (m.type === 'ready') {
+      OM.oppTeam = m.team; OM.oppReady = true; onBar();
+      if (OM.host) maybeStart();
+    } else if (m.type === 'start' && !OM.host) {
+      startOnline(m.seed, m.hostTeam, OM.myTeam);
+    } else if (m.type === 'tk') {
+      OM.oppTick = Math.max(OM.oppTick, m.tick);
+    } else if (m.type === 'cmd' && viewer && OM.sim) {
+      if (m.c.tick <= OM.sim.tick) OM.sim.applyCmd(m.c); else OM.sim.queueCmd(m.c);
+    } else if (m.type === 'snap' && !OM.host) {
+      OM.snap = m.s;
+    } else if (m.type === 'end') {
+      OM.hostEnd = m;
+      if (!OM.host) finishOnline({});
+    } else if (m.type === 'leave') {
+      if (OM.phase === 'draft') matchAbort('Rakip maçtan ayrıldı. LP değişmedi.');
+      else if (OM.phase === 'game') finishOnline({ forfeit: true });
+    }
+  }
+  function completeTeam() {
+    // eksik seçimleri ve dizilimleri tamamla
+    while (S.team.roster.length < 5) {
+      const idx = S.team.roster.length;
+      const c = draftOptions(idx)[0];
+      const b0 = D.buildFor(c);
+      S.team.roster[idx] = { role: D.ROLES[idx], champ: c, boots: null, items: [], keystone: b0.keystone, secondary: b0.secondary, summs: roleSumms(D.ROLES[idx], b0) };
+    }
+    for (const r of S.team.roster) {
+      const d = defaultLoadout(r.champ, r.role);
+      if (!r.boots) r.boots = d.boots;
+      for (const id of [...d.items, ...D.buildFor(r.champ).alt]) if (r.items.length < ITEM_SLOTS && !r.items.includes(id)) r.items.push(id);
+      if (!r.keystone) r.keystone = d.keystone;
+      if (!r.secondary) r.secondary = d.secondary;
+      if (r.summs.length < 2) r.summs = d.summs;
+    }
+  }
+  function autoReady() { completeTeam(); sendReady(); }
+  function sendReady() {
+    if (!OM || OM.myReady) return;
+    OM.myReady = true;
+    OM.myTeam = teamPayload(S.team);
+    pub(OM.topic, { type: 'ready', team: OM.myTeam });
+    onBar();
+    renderLoadout();
+    if (OM.host) maybeStart();
+  }
+  function maybeStart() {
+    if (!OM || !OM.host || !OM.myReady || !OM.oppReady || OM.phase !== 'draft') return;
+    const seed = Math.floor(Math.random() * 2147483647);
+    pub(OM.topic, { type: 'start', seed, hostTeam: OM.myTeam });
+    startOnline(seed, OM.myTeam, OM.oppTeam);
+  }
+  async function startOnline(seed, hostP, guestP) {
+    if (!OM || OM.phase !== 'draft') return;
+    OM.phase = 'loading';
+    onBar();
+    const hostT = teamFrom(hostP), guestT = teamFrom(guestP);
+    if (guestT.color === hostT.color) guestT.color = COLORS.find(c => c !== hostT.color && c !== '#4f8cff') || '#ef4444';
+    await Promise.all([...hostT.roster, ...guestT.roster].map(r => detail(r.champ.id)));
+    G = { teams: [hostT, guestT], mySide: OM.host ? 0 : 1, online: null };
+    series = { opp: OM.host ? guestT : hostT, bo: 1, wins: [0, 0], game: 0, online: true };
+    onlineLoading(() => {
+      if (!OM) return;
+      OM.phase = 'game';
+      OM.lastHeard = Date.now();
+      const sim = new M.Sim([simTeam(hostT), simTeam(guestT)], { seed, manual: [false, false] });
+      OM.sim = sim;
+      G.online = {
+        cmd: c => { if (!OM || !OM.sim) return; c.tick = OM.sim.tick + 150; c.n = ++OM.cmdN * 2 + (OM.host ? 0 : 1); OM.sim.queueCmd(c); pub(OM.topic, { type: 'cmd', c }); }
+      };
+      $('autoUlt').checked = true; S.autoUlt = true;
+      multi = {}; vo.played = new Set();
+      let tkT = 0, snapAt = 180;
+      show('battle');
+      setupBattle(sim, OM.ranked ? `Dereceli · ${rankLabel(PROFILE.lp)} vs ${rankLabel(OM.opp.lp)}` : 'Özel oda', {
+        gate: tick => tick <= OM.oppTick + 120,
+        focus: u => G.online.cmd({ type: 'focus', side: G.mySide, uid: u.uid }),
+        onFrame: (s, dt) => {
+          tkT -= dt;
+          if (tkT <= 0) { tkT = 0.2; pub(OM.topic, { type: 'tk', tick: s.tick }); }
+          if (OM.host && s.tick >= snapAt) { snapAt = s.tick + 180; pub(OM.topic, { type: 'snap', s: s.exportState() }); }
+          if (!OM.host && OM.snap && s.tick >= OM.snap.tick) { s.importState(OM.snap); OM.snap = null; }
+          const wait = $('waitOpp');
+          if (wait) wait.hidden = !(s.tick + 1 > OM.oppTick + 120 && !s.done);
+        },
+        onEnd: s => {
+          if (!OM) return;
+          if (OM.host) { pub(OM.topic, { type: 'end', winner: s.winner, byNexus: !!s.byNexus, kills: s.kills }); finishOnline({}); }
+          else { OM.waitEnd = true; if (OM.hostEnd) finishOnline({}); else setTimeout(() => OM && OM.phase === 'game' && finishOnline({}), 5000); }
+        }
+      });
+      if (!$('waitOpp')) $('arenaWrap').insertAdjacentHTML('beforeend', '<div class="wait-opp" id="waitOpp" hidden><i class="spin"></i> Rakip bekleniyor…</div>');
+    });
+  }
+  function onlineLoading(done) {
+    const teams = G.teams;
+    const card = (t, r) => {
+      const ks = S.keystones[r.keystone];
+      return `<div class="ls-card" style="--c:${t.color}"><div class="ls-art" style="background-image:url('${loadingArt(r.champ, r.skin)}')"></div><div class="ls-meta"><b>${esc(r.champ.name)}</b><small>${D.ROLE_NAMES[r.role]}</small><div class="ls-icons">${r.summs.map(x => `<img src="${summIcon(x)}" alt="">`).join('')}${ks ? `<img class="rn" src="${runeIcon(ks.icon)}" alt="">` : ''}</div></div></div>`;
+    };
+    const lp = side => side === G.mySide ? PROFILE.lp : OM.opp.lp;
+    const row = (t, side) => `<div class="ls-team"><div class="ls-head">${teamBadge(t)}<b>${esc(t.name)}</b><img class="ls-rank" src="${emblem(rankOf(lp(side)).key)}" alt=""><small class="muted">${rankLabel(lp(side))}</small></div><div class="ls-row">${t.roster.map(r => card(t, r)).join('')}</div></div>`;
+    $('overlayHost').innerHTML = `<div class="loadscreen">${row(teams[0], 0)}<div class="ls-vs"><span>VS</span><small>${OM.ranked ? 'DERECELİ' : 'ÖZEL ODA'}</small><i class="ls-bar"><em></em></i></div>${row(teams[1], 1)}</div>`;
+    setTimeout(() => { closeOverlay(); done(); }, 4000);
+  }
+  function leaveMatch() {
+    if (!OM) return;
+    clearInterval(OM.hb);
+    unsub(OM.topic);
+    OM = null;
+    MM.state = 'idle';
+    S.mode = null;
+    G.online = null;
+    const bar = $('onBar'); if (bar) bar.remove();
+    rkButtons();
+  }
+  function matchAbort(msg) {
+    if (!OM) return;
+    leaveMatch();
+    if (viewer) { viewer.stop(); viewer = null; }
+    overlay(`<div class="eyebrow">Dereceli</div><h2>Maç iptal</h2><div class="muted" style="margin-top:8px">${esc(msg)}</div><div class="center-actions"><button class="btn" id="toLobby">Lobiye dön</button></div>`);
+  }
+  function finishOnline({ forfeit }) {
+    if (!OM || OM.phase === 'done') return;
+    OM.phase = 'done';
+    const sim = OM.sim;
+    let winner = sim ? sim.winner : G.mySide;
+    if (forfeit) winner = G.mySide;
+    else if (OM.hostEnd && !OM.host) winner = OM.hostEnd.winner;
+    if (viewer) viewer.stop();
+    const won = winner === G.mySide;
+    const before = PROFILE.lp;
+    let d = 0;
+    if (OM.ranked) {
+      d = lpDelta(PROFILE.lp, OM.opp.lp, won);
+      PROFILE.lp = Math.max(0, PROFILE.lp + d);
+      if (won) PROFILE.w++; else PROFILE.l++;
+      PROFILE.hist.unshift({ won, opp: OM.opp.name, d, at: Date.now() });
+      PROFILE.hist.length = Math.min(PROFILE.hist.length, 30);
+      saveProfile();
+    }
+    const rb = rankOf(before), ra = rankOf(PROFILE.lp);
+    const promo = OM.ranked && (ra.tier > rb.tier || (ra.tier === rb.tier && ra.div !== rb.div && d > 0));
+    const demo = OM.ranked && d < 0 && (ra.tier < rb.tier || (ra.tier === rb.tier && ra.div !== rb.div));
+    const teams = G.teams;
+    const kills = sim ? sim.kills : [0, 0];
+    overlay(`
+      <div class="eyebrow">${OM.ranked ? 'Dereceli' : 'Özel oda'} · ${esc(teams[G.mySide].tag)} ${kills[G.mySide]} - ${kills[1 - G.mySide]} ${esc(teams[1 - G.mySide].tag)}${forfeit ? ' · Rakip ayrıldı' : ''}</div>
+      <h2>${won ? '<span class="res-win">ZAFER</span>' : '<span class="res-lose">BOZGUN</span>'}</h2>
+      ${OM.ranked ? `<div class="lp-res"><img src="${emblem(ra.key)}" alt=""><div><b>${rankLabel(PROFILE.lp)} · ${ra.lp} LP</b><span class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '+' : ''}${d} LP</span>${promo ? '<em class="up">Terfi! 🎉</em>' : demo ? '<em class="down">Düşüş</em>' : ''}</div></div>` : ''}
+      ${sim ? statTable(sim, teams) : ''}
+      <div class="center-actions"><button class="btn" id="toLobby">Lobiye dön</button></div>`);
+    leaveMatch();
+    renderRanked();
+    if (won) confetti();
+  }
+  $('overlayHost').addEventListener('click', e => {
+    if (e.target.closest('#toLobby')) { closeOverlay(); if (viewer) { viewer.stop(); viewer = null; } renderRanked(); show('intro'); lnTab('ranked'); renderRooms(); }
+  });
+  window.addEventListener('beforeunload', () => { if (OM) pub(OM.topic, { type: 'leave' }); if (MM.state === 'hosting') pub(`${P}rooms`, { closed: true }); });
+
+  // online modda dizilim ekranının eylem düğmesi HAZIR olur
+  const tourRenderLoadout = renderLoadout;
+  renderLoadout = function () {
+    tourRenderLoadout();
+    if (S.mode === 'online' && OM) {
+      const all = S.team.roster.length === 5 && S.team.roster.every(complete);
+      $('lineupAction').innerHTML = OM.myReady ? `<button class="btn" disabled>HAZIR ✓ · rakip bekleniyor</button>` : `<button class="btn" id="onReady" ${all ? '' : 'disabled'}>HAZIR</button>`;
+      if (!all && !OM.myReady) {
+        const next = S.team.roster.findIndex((x, i) => i !== S.loIdx && !complete(x));
+        if (next >= 0) $('lineupAction').insertAdjacentHTML('afterbegin', `<button class="btn ghost" id="nextChamp" style="margin-right:8px">Sonraki: ${esc(S.team.roster[next].champ.name)} →</button>`);
+      }
+    }
+  };
+  lineup.addEventListener('click', e => { if (e.target.closest('#onReady')) sendReady(); });
+  // tek oyunculu derece: turnuva sonu
+  const tourRenderEnd = renderEnd;
+  renderEnd = function () {
+    const T = S.tour;
+    if (T && !T.counted) {
+      T.counted = true;
+      PROFILE.solo.tours++;
+      const last = T.path.length ? T.path[T.path.length - 1].round : 0;
+      const place = T.champion === S.team ? -1 : 2 - last;
+      if (place < 0) PROFILE.solo.titles++;
+      PROFILE.solo.best = Math.min(PROFILE.solo.best, Math.max(0, place));
+      saveProfile();
+    }
+    tourRenderEnd();
+  };
+  renderRanked();
 
   load();
 })();

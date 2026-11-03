@@ -39,7 +39,10 @@
   const LANE_OF = { top: 'top', mid: 'mid', adc: 'adc', support: 'adc', jungle: 'mid' };
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-  const rnd = (a, b) => a + Math.random() * (b - a);
+  // Tohumlu rastgelelik: online maçta iki taraf aynı maçı üretir
+  let RNG = Math.random;
+  const mulberry32 = a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const rnd = (a, b) => a + RNG() * (b - a);
 
   // Data Dragon item.json'dan gelen statlar buraya yüklenir
   const ITEMS = {};
@@ -112,6 +115,10 @@
 
   class Sim {
     constructor(teams, opts = {}) {
+      this.rng = opts.seed != null ? mulberry32(opts.seed) : Math.random;
+      RNG = this.rng;
+      this.tick = 0;
+      this.cmds = [];
       this.t = 0;
       this.units = [];
       this.projs = [];
@@ -731,6 +738,9 @@
     // ---------- döngü ----------
     step(dt) {
       if (this.done) return;
+      RNG = this.rng;
+      this.tick++;
+      while (this.cmds.length && this.cmds[0].tick <= this.tick) this.applyCmd(this.cmds.shift());
       this.t += dt;
       for (let i = this.timers.length - 1; i >= 0; i--) {
         if (this.timers[i].at <= this.t) { const tm = this.timers.splice(i, 1)[0]; tm.fn(); }
@@ -819,7 +829,7 @@
 
       if (!u.isPet && !u.realm) {
         u.thinkT -= dt;
-        if (u.thinkT <= 0) { u.thinkT = 0.3 + Math.random() * 0.12; this.think(u); }
+        if (u.thinkT <= 0) { u.thinkT = 0.3 + RNG() * 0.12; this.think(u); }
         if (u.mode !== 'fight') {
           if (u.energy >= 100 && u.ultReadySince < 0) { u.ultReadySince = this.t; this.emit({ t: 'ultReady', u }); }
           // kaçarken bile menzildeki düşmana E (kaçış) kullanılabilir
@@ -1074,7 +1084,7 @@
       u.lunge = 0.14;
       if (u.keystone === 9923 && u.rune.hail > 0) u.rune.hail--;
       if (u.keystone === 8008) { u.rune.lethal = Math.min(6, u.rune.lethal + 1); u.rune.lethalUntil = this.t + 4; }
-      let crit = Math.random() < u.st.crit;
+      let crit = RNG() < u.st.crit;
       if (u.st.fx.sundered && !u.hitsOn['sk' + tg.uid]) { u.hitsOn['sk' + tg.uid] = 1; crit = true; this.heal(u, u, (u.st.ad - u.st.bonusAd) * 1 + (u.maxHp - u.hp) * 0.06); }
       const critMult = 1.75 + (u.st.fx.critDmg || 0);
       let dmg = this.ad(u) * (crit ? critMult : 1);
@@ -1161,7 +1171,7 @@
         case 'marksman':
         case 'onhit':
           this.shoot(u, tg, { speed: 1600, kind: 'spell', color: '#fde68a', big: true, onHit: () => {
-            const crit = Math.random() < u.st.crit;
+            const crit = RNG() < u.st.crit;
             this.damage(u, tg, (A * 0.5 + this.ad(u) * 1.1) * (crit ? 1.6 : 1), 'physical', { ability: true, crit });
             this.afterAbility(u, tg);
           } });
@@ -1366,6 +1376,33 @@
     }
 
     requestUlt(uid) { this.ultRequests.add(uid); }
+
+    // ---------- online: komutlar ve durum eşitleme ----------
+    queueCmd(c) { this.cmds.push(c); this.cmds.sort((a, b) => a.tick - b.tick || (a.n || 0) - (b.n || 0)); }
+    applyCmd(c) {
+      if (c.type === 'ult') this.ultRequests.add(c.uid);
+      else if (c.type === 'focus') { const u = this.units.find(x => x.uid === c.uid); if (u) this.focus[c.side] = { u, until: this.t + 6 }; }
+      else if (c.type === 'manual') this.manual[c.side] = c.on;
+    }
+    exportState() {
+      return {
+        tick: this.tick, t: this.t, kills: this.kills, gold: this.gold, drakes: this.drakes, barons: this.barons, towersDown: this.towersDown,
+        u: this.units.filter(u => !u.isPet).map(u => [u.uid, Math.round(u.x * 10) / 10, Math.round(u.y * 10) / 10, Math.round(u.hp), Math.round(u.maxHp), u.dead ? 1 : 0, Math.round((u.reviveAt || 0) * 100) / 100, Math.round(u.energy * 10) / 10, u.kills || 0, u.deaths || 0, u.assists || 0, Math.round(u.dmg || 0), u.spawnAt || 0])
+      };
+    }
+    importState(s) {
+      this.kills = s.kills; this.gold = s.gold; this.drakes = s.drakes; this.barons = s.barons; this.towersDown = s.towersDown;
+      const by = new Map(this.units.map(u => [u.uid, u]));
+      for (const [uid, x, y, hp, maxHp, dead, reviveAt, energy, k, d, a, dmg, spawnAt] of s.u) {
+        const u = by.get(uid);
+        if (!u) continue;
+        if (!u.dash && !u.realm) { u.x = x; u.y = y; }
+        u.maxHp = maxHp; u.hp = hp; u.energy = energy; u.kills = k; u.deaths = d; u.assists = a; u.dmg = dmg;
+        if (dead && !u.dead) { u.dead = true; u.deathT = this.t; u.reviveAt = reviveAt; u.respawnHome = !u.isMonster; u.spawnAt = spawnAt; }
+        else if (!dead && u.dead) { u.dead = false; u.reviveAt = 0; u.spawnAt = 0; }
+        else if (dead) { u.reviveAt = reviveAt; u.spawnAt = spawnAt; }
+      }
+    }
 
     // Ultiyi şimdi atmaya değer mi? (iki takım için aynı akıl)
     ultWorth(u, tg, d) {
@@ -1642,7 +1679,7 @@
           if (o.barrage) {
             const pool = o.barrage === 'cone' || o.barrage === 'line' ? this.enemiesOf(u).filter(t => dist(t, u) < 600) : tgts;
             for (let k = 0; k < 2; k++) {
-              const t = pool[Math.floor(Math.random() * pool.length)];
+              const t = pool[Math.floor(RNG() * pool.length)];
               if (!t) break;
               this.emit({ t: o.barrage === 'line' || o.barrage === 'cone' ? 'shot' : 'cannon', from: u, to: t, x: t.x + rnd(-40, 40), y: t.y + rnd(-40, 40), color: o.color });
               tot += this.damage(u, t, A * frac * 0.5, dtype, { ult: true, ability: true, aoe: true, quiet: true });
@@ -2153,8 +2190,8 @@
           if (!t || t.dead) return;
           const d = dist(u, t) || 1;
           const back = i === 0 && (u.ranged) ? -120 : u.r + t.r;
-          const tx = i === 0 && u.ranged ? u.x + (u.x - t.x) / d * 40 + (Math.random() - 0.5) * 140 : t.x - (t.x - u.x) / d * back;
-          const ty = i === 0 && u.ranged ? u.y + (u.y - t.y) / d * 40 + (Math.random() - 0.5) * 140 : t.y - (t.y - u.y) / d * back;
+          const tx = i === 0 && u.ranged ? u.x + (u.x - t.x) / d * 40 + (RNG() - 0.5) * 140 : t.x - (t.x - u.x) / d * back;
+          const ty = i === 0 && u.ranged ? u.y + (u.y - t.y) / d * 40 + (RNG() - 0.5) * 140 : t.y - (t.y - u.y) / d * back;
           this.dashTo(u, tx, ty, { dur: 0.2, style: 'dash', color: o.color, untargetable: true, onEnd: () => {
             const pool = this.enemiesOf(u).filter(x => dist(x, u) < 420).slice(0, o.bolts || 1);
             for (const x of o.aoe ? this.enemiesOf(u).filter(y => dist(y, u) < o.aoe) : pool) {
@@ -2169,7 +2206,7 @@
 
     ult_steal(u, tg, o) {
       const victims = this.units.filter(x => x.side !== u.side && !x.isPet && !x.isMonster && x.ult[0] !== 'steal' && x.ult[0] !== 'realm');
-      const v = victims[Math.floor(Math.random() * victims.length)];
+      const v = victims[Math.floor(RNG() * victims.length)];
       if (!v) return;
       this.emit({ t: 'steal', u, from: v, color: o.color });
       u.stolenName = v.ultName;

@@ -216,6 +216,8 @@
       this.assets = opts.assets;
       this.hooks = opts.hooks || {};
       this.speed = opts.speed || 1;
+      this.gate = opts.gate || null;
+      this.mySide = opts.mySide || 0;
       this.ground = makeGround(this.colors);
       this.cam = { x: M.W / 2, y: M.H / 2, z: VW / M.W };
       this.shake = 0;
@@ -264,12 +266,13 @@
       const p = this.toWorld(e.clientX - r.left, e.clientY - r.top);
       let best = null, bd = 60;
       for (const u of this.sim.units) {
-        if (u.dead || u.side !== 1 || u.realm || u.isPet) continue;
+        if (u.dead || u.side !== 1 - this.mySide || u.realm || u.isPet) continue;
         const d = Math.hypot(u.x - p.x, u.y - p.y);
         if (d < bd) { bd = d; best = u; }
       }
       if (best) {
-        this.sim.focus[0] = { u: best, until: this.sim.t + 6 };
+        if (this.hooks.focus) this.hooks.focus(best);
+        else this.sim.focus[this.mySide] = { u: best, until: this.sim.t + 6 };
         this.pings.push({ u: best, life: 1.2 });
         this.hooks.onFocus && this.hooks.onFocus(best);
       }
@@ -287,6 +290,8 @@
         this.acc += dt;
         let steps = 0;
         while (this.acc >= 1 / 60 && !this.sim.done && steps < 12) {
+          // online: rakip yetişene kadar bekle
+          if (this.gate && !this.gate(this.sim.tick + 1)) { this.acc = Math.min(this.acc, 0.1); break; }
           this.sim.step(1 / 60);
           this.acc -= 1 / 60;
           steps++;
@@ -687,7 +692,7 @@
         c.stroke();
       }
       // odak işareti
-      const f = sim.focus[0];
+      const f = sim.focus[this.mySide];
       if (!realm && f && f.u && !f.u.dead && sim.t < f.until) {
         c.fillStyle = '#ef4444';
         c.beginPath(); c.moveTo(f.u.x, f.u.y - f.u.r - 48); c.lineTo(f.u.x - 7, f.u.y - f.u.r - 60); c.lineTo(f.u.x + 7, f.u.y - f.u.r - 60); c.closePath(); c.fill();

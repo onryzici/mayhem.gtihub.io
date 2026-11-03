@@ -122,6 +122,58 @@
     @keyframes marquee { to { transform: translateX(-50%); } }
 
 
+
+    /* Dereceli / online */
+    .ln-rank { width: 34px; height: 34px; object-fit: contain; margin-left: 2px; }
+    .rk-grid { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 16px; }
+    .rk-card { position: relative; padding: 22px; text-align: center; border: 1px solid #463714; background: radial-gradient(400px 260px at 50% 0%, rgba(200,161,75,.16), transparent 70%), linear-gradient(180deg, #111923, #0b1118); }
+    .rk-emb { width: 190px; height: 190px; object-fit: contain; margin: -10px auto 4px; }
+    .rk-card h2 { font-size: 28px; margin-top: 6px; color: #f0e6d2; }
+    .rk-lp { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-family: var(--head); font-weight: 700; color: var(--gold-2); }
+    .rk-lp i { flex: 1; height: 6px; background: #1e2a36; position: relative; overflow: hidden; }
+    .rk-lp i::after { content: ''; position: absolute; inset: 0 auto 0 0; width: var(--v, 0%); background: linear-gradient(90deg, #785a28, #f0d48a); transition: width .6s; }
+    .rk-hist { margin-top: 16px; display: grid; gap: 6px; text-align: left; }
+    .rk-h { display: grid; grid-template-columns: 66px 1fr auto; gap: 8px; align-items: center; padding: 7px 10px; font-size: 13px; border-left: 3px solid; background: rgba(255,255,255,.03); }
+    .rk-h.w { border-color: #0acf83; } .rk-h.l { border-color: #f87171; }
+    .rk-h b { font-family: var(--head); } .rk-h.w b, .rk-h.w em { color: #34d399; } .rk-h.l b, .rk-h.l em { color: #f87171; }
+    .rk-h em { font-style: normal; font-weight: 700; }
+    .rk-act { display: flex; flex-direction: column; gap: 12px; }
+    .rk-box { padding: 16px; border: 1px solid #2a2f38; background: linear-gradient(180deg, #111923, #0b1118); }
+    .rk-box b { font-family: var(--head); font-size: 17px; color: var(--gold-2); }
+    .rk-box p { margin: 6px 0 12px; font-size: 13px; color: #a09b8c; line-height: 1.5; }
+    .rk-row { display: grid; grid-template-columns: auto 92px auto; gap: 8px; }
+    .rk-row .input { padding: 10px; text-align: center; font-family: var(--head); letter-spacing: .2em; }
+    .rk-status { min-height: 22px; font-size: 14px; color: #f0e6d2; display: flex; align-items: center; gap: 8px; }
+    .rk-code { font-family: var(--head); font-size: 20px; letter-spacing: .25em; color: var(--gold-2); }
+    .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(240,212,138,.3); border-top-color: #f0d48a; border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .rk-room { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 1px solid #2a2f38; background: #0d131b; color: inherit; cursor: pointer; text-align: left; margin-bottom: 6px; }
+    .rk-room:hover { border-color: #c8a14b; }
+    .rk-room div { flex: 1; min-width: 0; } .rk-room b { display: block; font-size: 14px; } .rk-room small { color: #a09b8c; font-size: 12px; }
+    .rk-room em { font-style: normal; font-family: var(--head); color: var(--gold-2); font-size: 13px; }
+    .rk-note { font-size: 11.5px; color: #6b7280; line-height: 1.5; margin: 4px 0 0; }
+    .on-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 40; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 8px 16px; background: linear-gradient(180deg, rgba(10,15,22,.97), rgba(10,15,22,.9)); border-bottom: 1px solid #463714; flex-wrap: wrap; }
+    .on-bar .ob-l, .on-bar .ob-r { display: flex; align-items: center; gap: 10px; font-size: 13px; flex-wrap: wrap; }
+    .on-bar .ob-vs { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+    .on-bar .ob-vs i { color: var(--gold); font-style: normal; font-family: var(--head); }
+    .on-bar small { color: #a09b8c; }
+    .on-bar .ob-t { font-family: var(--head); font-weight: 700; font-size: 24px; color: #f0e6d2; letter-spacing: .06em; }
+    .on-bar .ob-t.hot { color: #f87171; }
+    .on-bar .ob-r span { color: #a09b8c; } .on-bar .ob-r span.ok { color: #34d399; font-weight: 700; }
+    body:has(.on-bar) #draft, body:has(.on-bar) #loadout { padding-top: 52px; }
+    .mm-found { position: fixed; left: 50%; top: 38%; transform: translate(-50%, -50%); z-index: 60; text-align: center; padding: 26px 48px; border: 2px solid #c8a14b; background: rgba(8,11,18,.96); animation: ann 2.6s ease forwards; pointer-events: none; }
+    .mm-found b { display: block; font-family: var(--head); font-size: 40px; letter-spacing: .12em; color: #f0d48a; }
+    .mm-found span { color: #e5e7eb; }
+    .wait-opp { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); z-index: 5; display: flex; gap: 8px; align-items: center; padding: 8px 14px; background: rgba(8,11,18,.85); border: 1px solid #463714; font-size: 13px; }
+    .lp-res { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 10px 0 4px; }
+    .lp-res img { width: 84px; height: 84px; object-fit: contain; }
+    .lp-res b { display: block; font-family: var(--head); font-size: 18px; }
+    .lp-res span { font-family: var(--head); font-size: 26px; font-weight: 700; }
+    .lp-res em { display: block; font-style: normal; font-weight: 700; }
+    .lp-res .up { color: #34d399; } .lp-res .down { color: #f87171; }
+    .ls-rank { width: 30px; height: 30px; object-fit: contain; }
+    @media (max-width: 1080px) { .rk-grid { grid-template-columns: minmax(0, 1fr); } }
+
     /* Launcher tarzı giriş */
     #intro { position: relative; overflow: hidden; background: radial-gradient(900px 500px at 30% 0%, #132033, transparent 70%), #05080d; }
     .ln { display: flex; flex-direction: column; min-height: 100vh; max-width: 1500px; margin: 0 auto; border-left: 1px solid #1e2a36; border-right: 1px solid #1e2a36; background: linear-gradient(180deg, #0a1018, #070b11); }
@@ -541,12 +593,13 @@
         <div class="ln-brand">MAYHEM<small>LİGİ</small></div>
         <nav class="ln-tabs" id="lnTabs">
           <button type="button" class="on" data-ln="home">Ana Sayfa</button>
+          <button type="button" data-ln="ranked">Dereceli <em>ONLINE</em></button>
           <button type="button" data-ln="champs">Şampiyonlar <em id="featChamps">170+</em></button>
           <button type="button" data-ln="how">Nasıl Oynanır</button>
         </nav>
         <div class="ln-right">
           <button type="button" class="ln-icon" id="voToggle" title="Ses replikleri">🔊</button>
-          <div class="ln-prof"><span class="badge sm" id="lnBadge">?</span><div><b id="lnName">Sihirdar</b><small>Seviye 18 · <span id="lnPatch">yama …</span></small></div></div>
+          <div class="ln-prof"><span class="badge sm" id="lnBadge">?</span><div><b id="lnName">Sihirdar</b><small><span id="lnRankTxt">Gümüş IV</span> · <span id="lnPatch">yama …</span></small></div><img class="ln-rank" id="lnRank" alt=""></div>
         </div>
       </header>
       <div class="ln-body">
@@ -565,6 +618,35 @@
             </div>
             <div class="ln-news" id="lnNews"></div>
             <div class="marquee"><div class="track" id="marquee"></div></div>
+          </div>
+          <div class="ln-page" data-page="ranked">
+            <div class="rk-grid">
+              <div class="rk-card">
+                <img class="rk-emb" id="rkEmblem" alt="">
+                <div class="eyebrow">Dereceli · Sezon 1</div>
+                <h2 id="rkTier">Gümüş IV</h2>
+                <div class="rk-lp"><span id="rkLp">0 LP</span><i id="rkBar"></i></div>
+                <div class="muted" id="rkWL" style="font-size:13px;margin-top:8px"></div>
+                <div class="chip gold" id="rkSolo" style="margin-top:12px;white-space:normal"></div>
+                <div class="rk-hist" id="rkHist"></div>
+              </div>
+              <div class="rk-act">
+                <div class="rk-box">
+                  <b>Dereceli eşleşme</b>
+                  <p>Rankına yakın bir rakiple eşleşirsin; beklerken aralık genişler. İki takımın da 3 dakikası var, ikisi de HAZIR'a basınca maç hemen başlar.</p>
+                  <button class="btn" type="button" id="rkQueue" style="width:100%">Dereceli maç ara</button>
+                </div>
+                <div class="rk-box">
+                  <b>Özel oda</b>
+                  <p>Arkadaşınla oyna: oda kur, kodu paylaş. Özel odalar LP değiştirmez.</p>
+                  <div class="rk-row"><button class="btn ghost" type="button" id="rkHost">Oda kur</button><input class="input" id="rkCode" maxlength="4" placeholder="KOD" autocomplete="off" style="text-transform:uppercase"><button class="btn ghost" type="button" id="rkJoin">Katıl</button></div>
+                </div>
+                <div class="rk-status" id="rkStatus"></div>
+                <div class="ln-fh" style="margin-top:6px">AÇIK ODALAR <span id="rkQueueInfo"></span></div>
+                <div id="rkRooms"></div>
+                <p class="rk-note">Bağlantı herkese açık bir mesaj sunucusu üzerinden doğrudan rakibe gider; hesap gerekmez. LP bu tarayıcıda saklanır.</p>
+              </div>
+            </div>
           </div>
           <div class="ln-page" data-page="champs">
             <div class="ln-gal-head"><h2>Şampiyonlar</h2><input class="input" id="lnSearch" placeholder="Şampiyon ara…" autocomplete="off"><span class="muted" style="font-size:12px">Tıkla: seçim repliğini dinle</span></div>
@@ -707,6 +789,7 @@
 
   <div id="overlayHost"></div>
 
+  <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
   <script src="pro.js"></script>
   <script src="data.js"></script>
   <script src="engine.js"></script>
