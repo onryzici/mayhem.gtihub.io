@@ -121,6 +121,91 @@
     .marquee img { width: 48px; height: 48px; border-radius: 4px; border: 1px solid var(--line-2); opacity: 0.8; }
     @keyframes marquee { to { transform: translateX(-50%); } }
 
+
+    /* Launcher tarzı giriş */
+    #intro { position: relative; overflow: hidden; background: radial-gradient(900px 500px at 30% 0%, #132033, transparent 70%), #05080d; }
+    .ln { display: flex; flex-direction: column; min-height: 100vh; max-width: 1500px; margin: 0 auto; border-left: 1px solid #1e2a36; border-right: 1px solid #1e2a36; background: linear-gradient(180deg, #0a1018, #070b11); }
+    .ln-top { display: flex; align-items: center; gap: 18px; height: 72px; padding: 0 18px 0 12px; border-bottom: 1px solid #2a2416; background: linear-gradient(180deg, #0e151f, #0a0f16); }
+    .ln-play { position: relative; height: 46px; min-width: 150px; padding: 0 30px; cursor: pointer; border: 2px solid #c8a14b; border-radius: 3px 22px 22px 3px; background: linear-gradient(180deg, #1e2834, #0f151d); color: #f0e6d2; font-family: var(--head); font-weight: 700; font-size: 18px; letter-spacing: 0.12em; box-shadow: inset 0 0 0 2px #0a0f16, inset 0 0 0 3px rgba(200,161,75,.35); transition: background .15s, color .15s; }
+    .ln-play:hover { background: linear-gradient(180deg, #2a3646, #16202b); color: #fff; }
+    .ln-play::before { content: ''; position: absolute; left: -2px; top: 50%; width: 12px; height: 12px; transform: translate(-50%, -50%) rotate(45deg); background: #0a0f16; border: 2px solid #c8a14b; }
+    .ln-brand { font-family: var(--head); font-weight: 700; font-size: 18px; letter-spacing: 0.18em; color: #f0e6d2; line-height: 1; padding-right: 18px; border-right: 1px solid #2a2f38; }
+    .ln-brand small { display: block; font-size: 10px; letter-spacing: 0.42em; color: var(--gold); margin-top: 3px; }
+    .ln-tabs { display: flex; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; }
+    .ln-tabs button { position: relative; padding: 24px 14px; border: 0; background: none; cursor: pointer; font-family: var(--head); font-weight: 600; font-size: 14px; letter-spacing: 0.1em; text-transform: uppercase; color: #a09b8c; white-space: nowrap; }
+    .ln-tabs button:hover { color: #f0e6d2; }
+    .ln-tabs button.on { color: #f0e6d2; }
+    .ln-tabs button.on::after { content: ''; position: absolute; left: 14px; right: 14px; bottom: 0; height: 3px; background: linear-gradient(90deg, #785a28, #c8a14b, #785a28); }
+    .ln-tabs em { font-style: normal; color: var(--gold); font-size: 12px; margin-left: 4px; }
+    .ln-right { display: flex; align-items: center; gap: 12px; }
+    .ln-icon { width: 38px; height: 38px; border-radius: 50%; border: 1px solid #3c3c41; background: #0f151d; cursor: pointer; font-size: 16px; }
+    .ln-icon.off { opacity: .45; }
+    .ln-prof { display: flex; align-items: center; gap: 10px; padding: 5px 14px 5px 6px; border: 1px solid #3c3c41; border-radius: 26px; background: #0d131b; }
+    .ln-prof b { display: block; font-family: var(--head); font-size: 14px; color: #f0e6d2; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ln-prof small { font-size: 11px; color: #a09b8c; }
+    .ln-body { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 330px; min-height: 0; }
+    .ln-main { position: relative; padding: 18px; min-width: 0; }
+    .ln-page { display: none; }
+    .ln-page.on { display: block; animation: lnIn .35s ease; }
+    @keyframes lnIn { from { opacity: 0; transform: translateY(6px); } }
+    .ln-banner { position: relative; height: min(56vh, 520px); min-height: 360px; border: 1px solid #463714; overflow: hidden; }
+    .ln-banner .intro-bg { position: absolute; inset: 0; }
+    .ln-banner-shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(5,8,13,.94) 0%, rgba(5,8,13,.6) 42%, rgba(5,8,13,0) 75%), linear-gradient(0deg, rgba(5,8,13,.85), transparent 40%); }
+    .ln-banner-txt { position: absolute; left: 36px; bottom: 34px; right: 36px; max-width: 560px; }
+    .ln-banner .hero-logo { margin: 12px 0 14px; }
+    .ln-banner .hero-logo .a { font-size: clamp(54px, 8vw, 112px); }
+    .ln-banner .hero-logo .b { font-size: clamp(26px, 3.6vw, 48px); }
+    .ln-banner .hero-lead { font-size: 15px; margin-bottom: 20px; }
+    .ln-banner .bg-credit { bottom: 16px; right: 18px; }
+    .ln-news { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+    .ln-card { position: relative; height: 150px; overflow: hidden; border: 1px solid #2a2f38; background: #0d131b center 20% / cover; cursor: pointer; transition: border-color .15s, transform .15s; }
+    .ln-card:hover { border-color: #c8a14b; transform: translateY(-2px); }
+    .ln-card::before { content: ''; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(5,8,13,.95) 10%, rgba(5,8,13,.15)); }
+    .ln-card div { position: absolute; left: 14px; right: 14px; bottom: 12px; }
+    .ln-card small { font-family: var(--head); font-size: 11px; letter-spacing: .16em; color: var(--gold); text-transform: uppercase; }
+    .ln-card b { display: block; font-family: var(--head); font-size: 18px; color: #f0e6d2; margin-top: 3px; }
+    .ln-card span { display: block; font-size: 12px; color: #a09b8c; margin-top: 3px; line-height: 1.4; }
+    .ln-main .marquee { position: relative; margin-top: 14px; height: 64px; border: 1px solid #1e2a36; }
+    .ln-main .marquee .track { padding: 8px 0; }
+    .ln-gal-head { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
+    .ln-gal-head .input { max-width: 260px; padding: 9px 12px; font-size: 14px; }
+    .ln-gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 10px; max-height: calc(100vh - 190px); overflow-y: auto; padding-right: 4px; }
+    .ln-ch { padding: 0; border: 1px solid #2a2f38; background: #0d131b; cursor: pointer; color: inherit; text-align: center; transition: border-color .15s; }
+    .ln-ch:hover, .ln-ch.playing { border-color: #c8a14b; }
+    .ln-ch img { width: 100%; aspect-ratio: 1; object-fit: cover; }
+    .ln-ch span { display: block; padding: 5px 3px; font-size: 11.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ln-how { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .ln-how > div { padding: 18px; border: 1px solid #2a2f38; background: linear-gradient(180deg, #111923, #0b1118); }
+    .ln-how b { font-family: var(--head); font-size: 16px; color: var(--gold-2); letter-spacing: .04em; }
+    .ln-how p { margin: 8px 0 0; font-size: 13.5px; line-height: 1.55; color: #c3cad6; }
+    .ln-side { border-left: 1px solid #1e2a36; background: linear-gradient(180deg, #0c121a, #080c12); padding: 18px 14px; display: flex; flex-direction: column; gap: 16px; }
+    .ln-side .form-card { padding: 20px; backdrop-filter: none; box-shadow: none; }
+    .ln-side .form-card h2 { font-size: 20px; margin-bottom: 16px; }
+    .ln-side .form-card.pulse { animation: lnPulse .9s ease; }
+    @keyframes lnPulse { 30% { border-color: #f0d48a; transform: scale(1.015); } }
+    .ln-fh { display: flex; justify-content: space-between; font-family: var(--head); font-size: 12px; letter-spacing: .14em; color: #a09b8c; padding: 0 4px 8px; border-bottom: 1px solid #1e2a36; }
+    .ln-fh span { color: #0acf83; }
+    .ln-tm { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,.03); }
+    .ln-tm .badge { position: relative; }
+    .ln-tm .badge::after { content: ''; position: absolute; right: -3px; bottom: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--st, #0acf83); border: 2px solid #0a0f16; }
+    .ln-tm b { display: block; font-size: 13px; font-weight: 600; color: #e9edf5; }
+    .ln-tm small { font-size: 11.5px; color: var(--stc, #0acf83); }
+    @media (max-width: 1080px) {
+      .ln-body { grid-template-columns: minmax(0, 1fr); }
+      .ln-side { border-left: 0; border-top: 1px solid #1e2a36; }
+      .ln-friends { display: none; }
+      .ln-news, .ln-how { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (max-width: 680px) {
+      .ln-top { height: auto; flex-wrap: wrap; padding: 10px 16px; gap: 10px; }
+      .ln-brand, .ln-prof div { display: none; }
+      .ln-tabs { order: 3; flex-basis: 100%; }
+      .ln-tabs button { padding: 10px 10px; }
+      .ln-main { padding: 12px 16px; }
+      .ln-banner-txt { left: 18px; right: 18px; bottom: 18px; }
+      .ln-banner .bg-credit { display: none; }
+    }
+
     .topnav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 22px; flex-wrap: wrap; }
     .team-mini { display: flex; align-items: center; gap: 10px; font-family: var(--head); font-weight: 700; font-size: 18px; }
     .steps { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -450,43 +535,81 @@
 </head>
 <body>
   <section id="intro" class="screen active">
-    <div class="intro-bg" id="introBg"></div>
-    <div class="intro-shade"></div>
-    <div class="intro-grid">
-      <div>
-        <div class="hero-kicker">League of Legends turnuva simülatörü</div>
-        <h1 class="hero-logo"><span class="a">MAYHEM</span><span class="b">LİGİ</span></h1>
-        <p class="hero-lead">Takımını kur, her koridor için şampiyonunu seç. Rünlerini, sihirdar büyülerini ve 6 eşyalık buildini diz. 8 takımlı turnuvada 5 dakikalık maçları canlı izle: orman döner, ejder ve baron için savaşılır, ultileri sen at, odağı sen belirle.</p>
-        <div class="feats">
-          <div class="feat"><b id="featChamps">170+</b><span>şampiyon, her birinin kendine özel ultisi</span></div>
-          <div class="feat"><b>95+</b><span>güncel item, 17 ana rün, 8 sihirdar büyüsü</span></div>
-          <div class="feat"><b>8</b><span>takımlı eleme turnuvası, final 3 maçta 2</span></div>
+    <div class="ln">
+      <header class="ln-top">
+        <button class="ln-play" id="lnPlay" type="button"><span>OYNA</span></button>
+        <div class="ln-brand">MAYHEM<small>LİGİ</small></div>
+        <nav class="ln-tabs" id="lnTabs">
+          <button type="button" class="on" data-ln="home">Ana Sayfa</button>
+          <button type="button" data-ln="champs">Şampiyonlar <em id="featChamps">170+</em></button>
+          <button type="button" data-ln="how">Nasıl Oynanır</button>
+        </nav>
+        <div class="ln-right">
+          <button type="button" class="ln-icon" id="voToggle" title="Ses replikleri">🔊</button>
+          <div class="ln-prof"><span class="badge sm" id="lnBadge">?</span><div><b id="lnName">Sihirdar</b><small>Seviye 18 · <span id="lnPatch">yama …</span></small></div></div>
         </div>
-      </div>
-      <div class="form-card">
-        <div class="eyebrow">Yeni takım</div>
-        <h2>Ligdeki yerini al</h2>
-        <label class="field">
-          <span>Takım adı ve kısaltma</span>
-          <div class="row2">
-            <input class="input" id="teamName" maxlength="24" placeholder="Takım adını yaz" autocomplete="off">
-            <input class="input" id="teamTag" maxlength="4" placeholder="KSA" autocomplete="off" style="text-transform:uppercase">
+      </header>
+      <div class="ln-body">
+        <main class="ln-main">
+          <div class="ln-page on" data-page="home">
+            <div class="ln-banner">
+              <div class="intro-bg" id="introBg"></div>
+              <div class="ln-banner-shade"></div>
+              <div class="ln-banner-txt">
+                <div class="hero-kicker">Yeni mod · 5 dakikalık maçlar</div>
+                <h1 class="hero-logo"><span class="a">MAYHEM</span><span class="b">LİGİ</span></h1>
+                <p class="hero-lead">Takımını kur, her koridor için şampiyonunu ve kostümünü seç, buildini diz. 8 takımlı turnuvada orman döner, ejder ve baron için savaşılır, kuleler yıkılır.</p>
+                <button class="btn" type="button" data-go-form>Takımını kur →</button>
+              </div>
+              <div class="bg-credit" id="bgCredit"></div>
+            </div>
+            <div class="ln-news" id="lnNews"></div>
+            <div class="marquee"><div class="track" id="marquee"></div></div>
           </div>
-        </label>
-        <label class="field">
-          <span>Takım rengi</span>
-          <div class="swatches" id="swatches"></div>
-        </label>
-        <div class="team-preview" id="teamPreview">
-          <span class="badge" id="pvBadge">?</span>
-          <div><b id="pvName">Takımın</b><span class="muted" style="font-size:13px">Mayhem Ligi · Sezon 1</span></div>
-        </div>
-        <button class="btn" id="toDraft" style="width:100%" disabled>Yükleniyor…</button>
-        <div class="load-note" id="loadNote">Şampiyon verileri Riot Data Dragon'dan alınıyor…</div>
+          <div class="ln-page" data-page="champs">
+            <div class="ln-gal-head"><h2>Şampiyonlar</h2><input class="input" id="lnSearch" placeholder="Şampiyon ara…" autocomplete="off"><span class="muted" style="font-size:12px">Tıkla: seçim repliğini dinle</span></div>
+            <div class="ln-gal" id="lnGal"></div>
+          </div>
+          <div class="ln-page" data-page="how">
+            <div class="ln-how">
+              <div><b>1 · Takım</b><p>Ad, kısaltma ve renk seç. Her koridor için 5 şampiyondan birini al, 3 kez yenileyebilirsin.</p></div>
+              <div><b>2 · Dizilim</b><p>Ayakkabı + 5 item, ana rün, ikincil ağaç, 2 sihirdar büyüsü ve kostüm. Ormancı Çarp taşır.</p></div>
+              <div><b>3 · Maç</b><p>5 dakika. Koridorlar takas yapar, ormancı kamp keser ve baskın kurar; 0:50'de ejder, 2:30'da Baron çıkar.</p></div>
+              <div><b>4 · Zafer</b><p>Nexus'u yıkan kazanır. İki kule düşmeden Nexus korumalıdır. 5:00'da skorda önde olan kazanır.</p></div>
+              <div><b>Kontroller</b><p>Rakibe tıkla: odaklan. 1–5 ya da karttaki ikon: ulti. Boşluk: duraklat. 8x'e kadar hız.</p></div>
+              <div><b>Turnuva</b><p>Çeyrek final tek maç, yarı final ve final 3 maçta 2. Maçlar arasında dizilimini değiştirebilirsin.</p></div>
+            </div>
+          </div>
+        </main>
+        <aside class="ln-side">
+          <div class="form-card" id="formCard">
+            <div class="eyebrow">Yeni takım</div>
+            <h2>Ligdeki yerini al</h2>
+            <label class="field">
+              <span>Takım adı ve kısaltma</span>
+              <div class="row2">
+                <input class="input" id="teamName" maxlength="24" placeholder="Takım adını yaz" autocomplete="off">
+                <input class="input" id="teamTag" maxlength="4" placeholder="KSA" autocomplete="off" style="text-transform:uppercase">
+              </div>
+            </label>
+            <label class="field">
+              <span>Takım rengi</span>
+              <div class="swatches" id="swatches"></div>
+            </label>
+            <div class="team-preview" id="teamPreview">
+              <span class="badge" id="pvBadge">?</span>
+              <div><b id="pvName">Takımın</b><span class="muted" style="font-size:13px">Mayhem Ligi · Sezon 1</span></div>
+            </div>
+            <button class="btn" id="toDraft" style="width:100%" disabled>Yükleniyor…</button>
+            <div class="load-note" id="loadNote">Şampiyon verileri Data Dragon'dan alınıyor…</div>
+          </div>
+          <div class="ln-friends">
+            <div class="ln-fh">LİGDEKİ TAKIMLAR <span id="lnOnline">0/12</span></div>
+            <div id="lnTeams"></div>
+          </div>
+        </aside>
       </div>
     </div>
-    <div class="bg-credit" id="bgCredit"></div>
-    <div class="marquee"><div class="track" id="marquee"></div></div>
   </section>
 
   <section id="draft" class="screen">
@@ -572,6 +695,7 @@
         <div class="grp">
           <div class="speed" id="speed"><button data-s="0">❚❚</button><button data-s="1" class="on">1x</button><button data-s="2">2x</button><button data-s="4">4x</button><button data-s="8">8x</button></div>
           <label class="toggle"><input type="checkbox" id="autoUlt" checked> Otomatik ulti</label>
+          <button type="button" class="ln-icon" data-vo-toggle title="Ses replikleri" style="width:34px;height:34px">🔊</button>
         </div>
         <div class="hint">Düşmana tıkla: takımın ona odaklansın · Ulti hazır olunca kartındaki ikona ya da <kbd>1</kbd>–<kbd>5</kbd>'e bas · Nexus'u yıkan ya da 5:00'da skorda önde olan kazanır</div>
         <button class="btn ghost small" id="skip">Maçı atla ⏭</button>

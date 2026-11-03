@@ -115,12 +115,81 @@
     return S.detail[id];
   }
 
-  // ---------- 1. giriş ----------
+  // ---------- ses replikleri ----------
+  const VO_BASE = 'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/tr_tr/v1';
+  const vo = { on: true, cur: null, played: new Set() };
+  try { vo.on = localStorage.getItem('mayhemVO') !== '0'; } catch (e) {}
+  function playVO(c, kind = 'choose', vol = 0.75, force = true) {
+    if (!vo.on || !c) return null;
+    if (!force && vo.cur && !vo.cur.paused && !vo.cur.ended) return null;
+    try {
+      if (vo.cur) vo.cur.pause();
+      const a = new Audio(`${VO_BASE}/champion-${kind}-vo/${c.key}.ogg`);
+      a.volume = vol;
+      a.play().catch(() => {});
+      vo.cur = a;
+      return a;
+    } catch (e) { return null; }
+  }
+  function setVO(on) {
+    vo.on = on;
+    if (!on && vo.cur) vo.cur.pause();
+    try { localStorage.setItem('mayhemVO', on ? '1' : '0'); } catch (e) {}
+    document.querySelectorAll('[data-vo-toggle]').forEach(b => { b.classList.toggle('off', !on); b.textContent = on ? '🔊' : '🔇'; });
+  }
+  document.addEventListener('click', e => { const b = e.target.closest('[data-vo-toggle]'); if (b) setVO(!vo.on); });
+
+  // ---------- 1. giriş (launcher) ----------
+  function setupLauncher(ids) {
+    $('lnPatch').textContent = `yama ${S.v}`;
+    const pick = n => S.champs[ids[n % ids.length]];
+    const news = [
+      { c: pick(10), tag: 'Yeni mod', t: '5 dakikalık maçlar', d: 'Koridor evresi, orman, ejder ve Baron. Nexus\'u yıkan kazanır.' },
+      { c: pick(11), tag: 'Koleksiyon', t: 'Kostümler geldi', d: 'Her şampiyonun güncel kostümleri dizilim ekranında.' },
+      { c: pick(12), tag: 'Yama ' + S.v, t: 'Güncel itemler', d: `${Object.keys(M.ITEMS).length} item, ${Object.keys(S.keystones).length} ana rün, gerçek buildler.` }
+    ];
+    $('lnNews').innerHTML = news.map((n, i) => `<div class="ln-card" data-news="${i}" style="background-image:url('${splashArt(n.c)}')"><div><small>${esc(n.tag)}</small><b>${esc(n.t)}</b><span>${esc(n.d)}</span></div></div>`).join('');
+    const sorted = Object.values(S.champs).sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+    $('lnGal').innerHTML = sorted.map(c => `<button type="button" class="ln-ch" data-ch="${c.id}" data-q="${esc(c.name.toLocaleLowerCase('tr'))}"><img src="${icon(c)}" alt="" loading="lazy"><span>${esc(c.name)}</span></button>`).join('');
+    const status = [['Çevrimiçi', '#0acf83'], ['Maçta', '#0ab3cf'], ['Dizilim yapıyor', '#c8a14b'], ['Çevrimdışı', '#5b5a56']];
+    let online = 0;
+    $('lnTeams').innerHTML = AI_TEAMS.map(([n, t], i) => {
+      const st = status[(i * 7 + 3) % 4];
+      if (st[0] !== 'Çevrimdışı') online++;
+      return `<div class="ln-tm" style="--st:${st[1]};--stc:${st[1]}"><span class="badge sm" style="--c:${COLORS[(i + 1) % COLORS.length]}">${esc(t)}</span><div><b>${esc(n)}</b><small>${st[0]}</small></div></div>`;
+    }).join('');
+    $('lnOnline').textContent = `${online}/${AI_TEAMS.length}`;
+  }
+  const lnTab = tab => {
+    document.querySelectorAll('#lnTabs button').forEach(b => b.classList.toggle('on', b.dataset.ln === tab));
+    document.querySelectorAll('.ln-page').forEach(pg => pg.classList.toggle('on', pg.dataset.page === tab));
+  };
+  const goForm = () => { lnTab('home'); const f = $('formCard'); f.classList.remove('pulse'); void f.offsetWidth; f.classList.add('pulse'); $('teamName').focus(); };
+  $('lnTabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) lnTab(b.dataset.ln); });
+  $('lnPlay').addEventListener('click', () => { if (!$('toDraft').disabled) $('toDraft').click(); else goForm(); });
+  $('intro').addEventListener('click', e => {
+    if (e.target.closest('[data-go-form]') || e.target.closest('[data-news]')) goForm();
+    const ch = e.target.closest('[data-ch]');
+    if (ch) {
+      document.querySelectorAll('.ln-ch.playing').forEach(x => x.classList.remove('playing'));
+      ch.classList.add('playing');
+      const a = playVO(S.champs[ch.dataset.ch]);
+      if (a) a.onended = () => ch.classList.remove('playing');
+    }
+  });
+  $('lnSearch').addEventListener('input', e => {
+    const q = e.target.value.trim().toLocaleLowerCase('tr');
+    document.querySelectorAll('.ln-ch').forEach(b => { b.hidden = q && !b.dataset.q.includes(q); });
+  });
+  $('voToggle').dataset.voToggle = '1';
+
   function setupIntro() {
     const ids = shuffle(Object.keys(S.champs));
     const picks = ids.slice(0, 7);
     $('introBg').innerHTML = picks.map((id, i) => `<div class="slide${i ? '' : ' on'}" style="background-image:url('${splashArt(S.champs[id])}')"></div>`).join('');
     $('featChamps').textContent = Object.keys(S.champs).length;
+    setupLauncher(ids);
+    setVO(vo.on);
     const icons = ids.slice(0, 44).map(id => `<img src="${icon(S.champs[id])}" alt="" loading="lazy">`).join('');
     $('marquee').innerHTML = icons + icons;
     let cur = 0;
@@ -149,6 +218,9 @@
     $('pvBadge').style.setProperty('--c', S.team.color);
     $('teamPreview').style.setProperty('--pc', S.team.color);
     $('pvName').textContent = name || 'Takımın';
+    $('lnName').textContent = name || 'Sihirdar';
+    $('lnBadge').textContent = tag;
+    $('lnBadge').style.setProperty('--c', S.team.color);
     $('toDraft').disabled = !(S.champs && name.length >= 2);
     if (S.champs) $('toDraft').textContent = 'Takımı kur →';
   }
@@ -248,6 +320,7 @@
     if (!b) return;
     const c = S.draft.options[+b.dataset.i];
     const idx = S.draft.idx;
+    playVO(c);
     const b0 = D.buildFor(c);
     S.team.roster[idx] = { role: D.ROLES[idx], champ: c, boots: null, items: [], keystone: b0.keystone, secondary: b0.secondary, summs: roleSumms(D.ROLES[idx], b0) };
     S.team.roster.length = idx + 1;
@@ -315,7 +388,7 @@
       <div class="art"><img src="${splashArt(c, r.skin)}" alt=""></div>
       <div class="body">
         <div class="eyebrow">${D.ROLE_NAMES[r.role]}${r.skin && det ? ` · ${esc((det.skins.find(s => s.num === r.skin) || {}).name || '')}` : ''}</div>
-        <h3>${esc(c.name)}</h3>
+        <h3>${esc(c.name)} <button type="button" class="btn ghost small" data-vo-play="${c.id}" title="Repliği dinle" style="padding:4px 9px;vertical-align:middle">🔊</button></h3>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><span class="chip gold">${D.CLASS_NAMES[cls]}</span><span class="chip">Seviye ${M.LEVEL}</span><span class="chip">${fmt(gold)} altın</span></div>
         <div class="desc">${D.CLASS_DESC[cls]}</div>
         <div class="ult-line">${ultLine(c, det)}</div>
@@ -431,6 +504,7 @@
     $('loBody').innerHTML = html;
   }
 
+  document.addEventListener('click', e => { const b = e.target.closest('[data-vo-play]'); if (b) playVO(S.champs[b.dataset.voPlay]); });
   $('loTabs').addEventListener('click', e => {
     const t = e.target.closest('.tab');
     if (t) { S.loTab = t.dataset.tab; renderLoadout(); }
@@ -683,6 +757,7 @@
   function startGame() {
     series.game++;
     multi = {};
+    vo.played = new Set();
     const sim = new M.Sim([simTeam(S.team), simTeam(series.opp)], { manual: [!S.autoUlt, false] });
     const teams = [S.team, series.opp];
     $('sbA').innerHTML = `${teamBadge(S.team)}<span class="tn">${esc(S.team.name)}</span><span class="obj" id="oA"></span><span class="k" id="kA">0</span>`;
@@ -742,6 +817,7 @@
   }
 
   function callout(u) {
+    if (!vo.played.has(u.uid) && playVO(u.champ, 'choose', u.side ? 0.45 : 0.6, false)) vo.played.add(u.uid);
     const det = S.detail[u.champ.id] || {};
     const col = (u.ult[1] && u.ult[1].color) || '#f0d48a';
     const name = u.stolenName && u.ult[0] === 'steal' ? u.stolenName : det.ultName || 'Ulti';
